@@ -1,0 +1,42 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Station {
+  id              String   @id @default(cuid())
+  stationId      String   @unique // ST01, ST02, etc.
+  type            String   // WELDING, ASSEMBLY, etc.
+  status          String   @default("STOPPED") // RUNNING, STOPPED, ERROR, MAINTENANCE
+  oee             Float    @default(0)
+  productionCount Int      @default(0)
+  targetCount     Int      @default(0)
+  cycleTime       Int      @default(0) // in seconds
+  operator        String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@map("stations")
+}
+
+model StationHistory {
+  id              String   @id @default(cuid())
+  stationId      String
+  status          String   // RUNNING, STOPPED, ERROR, MAINTENANCE
+  oee             Float
+  productionCount Int
+  timestamp       DateTime @default(now())
+  
+  @@map("station_history")
+  @@index([stationId, timestamp])
+}
+
+// SQLite enum desteklemediği için status alanları String olarak tanımlandı
+// Geçerli değerler: RUNNING, STOPPED, ERROR, MAINTENANCE

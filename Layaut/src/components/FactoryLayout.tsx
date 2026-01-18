@@ -1,26 +1,46 @@
 import React, { useState, useRef } from 'react';
-import { mockStations, getStationStatus, getStationInfo, type StationStatus, type StationInfo } from '../data/mockProductionData';
+import { useStations } from '../hooks/useStations';
+import { getStationById, type StationStatus, type StationInfo } from '../services/api';
 import StationInfoPopover from './StationInfoPopover';
 import '../styles/factory.css';
 
 interface FactoryLayoutProps {
-  stations?: StationStatus[];
   onStationClick?: (stationId: string) => void;
+  useApi?: boolean; // API kullanımını açıp kapatmak için
 }
 
 const FactoryLayout: React.FC<FactoryLayoutProps> = ({ 
-  stations = mockStations,
-  onStationClick 
+  onStationClick,
+  useApi = true, // Varsayılan olarak API kullan
 }) => {
+  // API'den istasyonları yükle
+  const { stations, loading, error, getStationById: fetchStationById } = useStations();
+  
   const [selectedStation, setSelectedStation] = useState<StationInfo | null>(null);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [popoverPosition, setPopoverPosition] = useState<{ x: number; y: number } | undefined>();
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const handleStationClick = (stationId: string, event: React.MouseEvent<SVGGElement>) => {
+  const handleStationClick = async (stationId: string, event: React.MouseEvent<SVGGElement>) => {
     console.log(`Station clicked: ${stationId}`);
-    const stationInfo = getStationInfo(stationId);
-    setSelectedStation(stationInfo);
+    
+    // API'den istasyon bilgilerini getir
+    if (useApi) {
+      try {
+        const stationInfo = await getStationById(stationId);
+        setSelectedStation(stationInfo);
+      } catch (err) {
+        console.error('Error fetching station info:', err);
+        return;
+      }
+    } else {
+      // Fallback: Mock data kullan (geliştirme için)
+      const station = stations.find(s => s.id === stationId);
+      if (station) {
+        setSelectedStation(station as StationInfo);
+      }
+      return;
+    }
     
     // Find station position in SVG
     const stations = [
@@ -60,9 +80,33 @@ const FactoryLayout: React.FC<FactoryLayoutProps> = ({
   };
 
   const getStationStatusClass = (stationId: string): string => {
-    const status = stations.find(s => s.id === stationId)?.status || 'STOPPED';
+    const station = stations.find(s => s.id === stationId);
+    const status = station?.status || 'STOPPED';
     return `status-${status.toLowerCase()}`;
   };
+
+  // Loading durumu
+  if (loading && useApi) {
+    return (
+      <div className="factory-container">
+        <div className="text-white text-center">
+          <p>İstasyonlar yükleniyor...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Hata durumu
+  if (error && useApi) {
+    return (
+      <div className="factory-container">
+        <div className="text-red-500 text-center">
+          <p>Hata: {error.message}</p>
+          <p className="text-sm mt-2">Backend API'ye bağlanılamıyor. Mock data kullanılıyor.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="factory-container">

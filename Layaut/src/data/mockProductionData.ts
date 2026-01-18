@@ -57,7 +57,7 @@ export const stationTypes: Record<string, string> = {
 export const getStationInfo = (stationId: string): StationInfo => {
   const station = mockStations.find(s => s.id === stationId);
   const type = stationTypes[stationId] || 'UNKNOWN';
-  
+
   // Mock detailed data based on station ID
   const mockData: Record<string, Omit<StationInfo, 'id' | 'status'>> = {
     'ST01': {
