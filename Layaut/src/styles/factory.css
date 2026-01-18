@@ -1,0 +1,137 @@
+/* Factory Layout SVG Styles */
+
+/* Global full-height styles */
+html, body {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+#root {
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Base station styles */
+.station {
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.station:hover {
+  opacity: 0.9;
+}
+
+/* Status lamp base styles */
+.status-lamp {
+  transition: fill 0.3s ease;
+}
+
+/* RUNNING status - Green */
+.status-running .status-lamp-core {
+  fill: #22c55e;
+}
+
+.status-running .status-lamp-middle {
+  fill: #16a34a;
+}
+
+.status-running .status-lamp-outer {
+  fill: #15803d;
+}
+
+/* STOPPED status - Yellow */
+.status-stopped .status-lamp-core {
+  fill: #eab308;
+}
+
+.status-stopped .status-lamp-middle {
+  fill: #ca8a04;
+}
+
+.status-stopped .status-lamp-outer {
+  fill: #a16207;
+}
+
+/* ERROR status - Red */
+.status-error .status-lamp-core {
+  fill: #ef4444;
+}
+
+.status-error .status-lamp-middle {
+  fill: #dc2626;
+}
+
+.status-error .status-lamp-outer {
+  fill: #b91c1c;
+}
+
+/* MAINTENANCE status - Blue */
+.status-maintenance .status-lamp-core {
+  fill: #3b82f6;
+}
+
+.status-maintenance .status-lamp-middle {
+  fill: #2563eb;
+}
+
+.status-maintenance .status-lamp-outer {
+  fill: #1d4ed8;
+}
+
+/* Station body hover effects */
+.station:hover .station-body {
+  stroke-width: 2.5;
+}
+
+.status-running:hover .station-body {
+  stroke: #22c55e;
+}
+
+.status-stopped:hover .station-body {
+  stroke: #eab308;
+}
+
+.status-error:hover .station-body {
+  stroke: #ef4444;
+}
+
+.status-maintenance:hover .station-body {
+  stroke: #3b82f6;
+}
+
+/* Conveyor belt styles */
+.conveyor {
+  transition: opacity 0.2s ease;
+}
+
+/* Station labels */
+.station-label {
+  font-family: monospace;
+  user-select: none;
+}
+
+/* Responsive container */
+.factory-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #1a1d24;
+  padding: 0;
+  overflow: hidden;
+}
+
+.factory-container svg {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
