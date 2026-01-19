@@ -135,3 +135,55 @@ html, body {
   object-fit: contain;
   display: block;
 }
+
+/* Conveyor Belt Animation */
+@keyframes moveBox {
+  0% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(90px);
+    opacity: 0;
+  }
+}
+
+.conveyor-box {
+  animation: moveBox 2s linear infinite;
+}
+
+.conveyor-box-delayed-1 {
+  animation: moveBox 2s linear infinite;
+  animation-delay: 0.5s;
+}
+
+.conveyor-box-delayed-2 {
+  animation: moveBox 2s linear infinite;
+  animation-delay: 1s;
+}
+
+.conveyor-box-delayed-3 {
+  animation: moveBox 2s linear infinite;
+  animation-delay: 1.5s;
+}
+
+/* Conveyor roller animation */
+@keyframes rotateRoller {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -8;
+  }
+}
+
+.conveyor-active .conveyor-roller {
+  stroke-dasharray: 4 4;
+  animation: rotateRoller 0.5s linear infinite;
+}

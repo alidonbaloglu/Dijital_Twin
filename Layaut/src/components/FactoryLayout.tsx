@@ -9,13 +9,13 @@ interface FactoryLayoutProps {
   useApi?: boolean; // API kullanımını açıp kapatmak için
 }
 
-const FactoryLayout: React.FC<FactoryLayoutProps> = ({ 
+const FactoryLayout: React.FC<FactoryLayoutProps> = ({
   onStationClick,
   useApi = true, // Varsayılan olarak API kullan
 }) => {
   // API'den istasyonları yükle
   const { stations, loading, error, getStationById: fetchStationById } = useStations();
-  
+
   const [selectedStation, setSelectedStation] = useState<StationInfo | null>(null);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [popoverPosition, setPopoverPosition] = useState<{ x: number; y: number } | undefined>();
@@ -23,7 +23,7 @@ const FactoryLayout: React.FC<FactoryLayoutProps> = ({
 
   const handleStationClick = async (stationId: string, event: React.MouseEvent<SVGGElement>) => {
     console.log(`Station clicked: ${stationId}`);
-    
+
     // API'den istasyon bilgilerini getir
     if (useApi) {
       try {
@@ -41,9 +41,9 @@ const FactoryLayout: React.FC<FactoryLayoutProps> = ({
       }
       return;
     }
-    
+
     // Find station position in SVG
-    const stations = [
+    const stationPositions = [
       { id: 'ST01', x: 80, y: 200 },
       { id: 'ST02', x: 330, y: 200 },
       { id: 'ST03', x: 580, y: 200 },
@@ -51,30 +51,30 @@ const FactoryLayout: React.FC<FactoryLayoutProps> = ({
       { id: 'ST05', x: 1080, y: 200 },
       { id: 'ST06', x: 1330, y: 200 },
     ];
-    
-    const station = stations.find(s => s.id === stationId);
-    if (station && svgRef.current) {
+
+    const stationPos = stationPositions.find(s => s.id === stationId);
+    if (stationPos && svgRef.current) {
       const rect = svgRef.current.getBoundingClientRect();
       const svgRect = svgRef.current.viewBox.baseVal;
-      
+
       // Calculate scale factors
       const scaleX = rect.width / svgRect.width;
       const scaleY = rect.height / svgRect.height;
-      
+
       // Station center in SVG coordinates
-      const stationCenterX = station.x + 70; // Station width / 2
-      const stationCenterY = station.y + 50; // Station height / 2
-      
+      const stationCenterX = stationPos.x + 70; // Station width / 2
+      const stationCenterY = stationPos.y + 50; // Station height / 2
+
       // Convert to screen coordinates
       const screenX = rect.left + stationCenterX * scaleX;
       const screenY = rect.top + stationCenterY * scaleY;
-      
+
       setPopoverPosition({ x: screenX, y: screenY });
     } else {
       // Fallback to click position
       setPopoverPosition({ x: event.clientX, y: event.clientY });
     }
-    
+
     setPopoverOpen(true);
     onStationClick?.(stationId);
   };
@@ -338,74 +338,153 @@ const FactoryLayout: React.FC<FactoryLayoutProps> = ({
           );
         })}
 
-        {/* Conveyors */}
+        {/* Conveyors - Dynamic based on station status */}
         {[
-          { id: '01', x: 220, y: 246, width: 110 },
-          { id: '02', x: 470, y: 246, width: 110 },
-          { id: '03', x: 720, y: 246, width: 110 },
-          { id: '04', x: 970, y: 246, width: 110 },
-          { id: '05', x: 1220, y: 246, width: 110 },
-        ].map((conveyor) => (
-          <g key={`conveyor-${conveyor.id}`} id={`Conveyor_${conveyor.id}`} className="conveyor">
-            <polygon
-              id={`Conveyor_${conveyor.id}_Side`}
-              points={`${conveyor.x + conveyor.width},${conveyor.y} ${conveyor.x + conveyor.width + 4},${conveyor.y - 4} ${conveyor.x + conveyor.width + 4},${conveyor.y + 8 - 4} ${conveyor.x + conveyor.width},${conveyor.y + 8}`}
-              fill="#4a5568"
-              stroke="#6b7280"
-              strokeWidth="0.5"
-            />
-            <polygon
-              id={`Conveyor_${conveyor.id}_Top`}
-              points={`${conveyor.x},${conveyor.y} ${conveyor.x + 4},${conveyor.y - 4} ${conveyor.x + conveyor.width + 4},${conveyor.y - 4} ${conveyor.x + conveyor.width},${conveyor.y}`}
-              fill="#5a6978"
-              stroke="#6b7280"
-              strokeWidth="0.5"
-            />
-            <rect
-              id={`Conveyor_${conveyor.id}_Body`}
-              x={conveyor.x}
-              y={conveyor.y}
-              width={conveyor.width}
-              height="8"
-              fill="#4a5568"
-              stroke="#6b7280"
-              strokeWidth="1"
-            />
-            {Array.from({ length: 8 }, (_, i) => (
-              <line
-                key={`roller-${i}`}
-                id={`Conveyor_${conveyor.id}_Roller_${i + 1}`}
-                x1={conveyor.x + (i + 1) * (conveyor.width / 9)}
-                y1={conveyor.y}
-                x2={conveyor.x + (i + 1) * (conveyor.width / 9)}
-                y2={conveyor.y + 8}
-                stroke="#2d3748"
+          { id: '01', x: 220, y: 246, width: 110, fromStation: 'ST01', toStation: 'ST02' },
+          { id: '02', x: 470, y: 246, width: 110, fromStation: 'ST02', toStation: 'ST03' },
+          { id: '03', x: 720, y: 246, width: 110, fromStation: 'ST03', toStation: 'ST04' },
+          { id: '04', x: 970, y: 246, width: 110, fromStation: 'ST04', toStation: 'ST05' },
+          { id: '05', x: 1220, y: 246, width: 110, fromStation: 'ST05', toStation: 'ST06' },
+        ].map((conveyor) => {
+          // Get source and destination station statuses
+          const fromStationData = stations.find(s => s.id === conveyor.fromStation);
+          const toStationData = stations.find(s => s.id === conveyor.toStation);
+
+          const isFromRunning = fromStationData?.status === 'RUNNING';
+          const isToRunning = toStationData?.status === 'RUNNING';
+
+          // Boxes move only when from station is running
+          // Animation pauses when to station is not running (boxes wait)
+          const showBoxes = isFromRunning && (fromStationData?.productionCount || 0) > 0;
+          const animationPaused = !isToRunning;
+
+          return (
+            <g key={`conveyor-${conveyor.id}`} id={`Conveyor_${conveyor.id}`} className={`conveyor ${isFromRunning ? 'conveyor-active' : ''}`}>
+              <polygon
+                id={`Conveyor_${conveyor.id}_Side`}
+                points={`${conveyor.x + conveyor.width},${conveyor.y} ${conveyor.x + conveyor.width + 4},${conveyor.y - 4} ${conveyor.x + conveyor.width + 4},${conveyor.y + 8 - 4} ${conveyor.x + conveyor.width},${conveyor.y + 8}`}
+                fill="#4a5568"
+                stroke="#6b7280"
+                strokeWidth="0.5"
+              />
+              <polygon
+                id={`Conveyor_${conveyor.id}_Top`}
+                points={`${conveyor.x},${conveyor.y} ${conveyor.x + 4},${conveyor.y - 4} ${conveyor.x + conveyor.width + 4},${conveyor.y - 4} ${conveyor.x + conveyor.width},${conveyor.y}`}
+                fill="#5a6978"
+                stroke="#6b7280"
+                strokeWidth="0.5"
+              />
+              <rect
+                id={`Conveyor_${conveyor.id}_Body`}
+                x={conveyor.x}
+                y={conveyor.y}
+                width={conveyor.width}
+                height="8"
+                fill="#4a5568"
+                stroke="#6b7280"
                 strokeWidth="1"
               />
-            ))}
-            <line
-              id={`Conveyor_${conveyor.id}_Flow_Arrow`}
-              x1={conveyor.x + 10}
-              y1="230"
-              x2={conveyor.x + conveyor.width - 10}
-              y2="230"
-              stroke="#60a5fa"
-              strokeWidth="2"
-              markerEnd="url(#arrowhead)"
-            />
-            <text
-              id={`Conveyor_${conveyor.id}_Flow_Label`}
-              x={conveyor.x + conveyor.width / 2}
-              y="225"
-              fontSize="9"
-              fill="#60a5fa"
-              textAnchor="middle"
-              fontFamily="monospace"
-            >
-              FLOW
-            </text>
-          </g>
-        ))}
+              {Array.from({ length: 8 }, (_, i) => (
+                <line
+                  key={`roller-${i}`}
+                  id={`Conveyor_${conveyor.id}_Roller_${i + 1}`}
+                  className="conveyor-roller"
+                  x1={conveyor.x + (i + 1) * (conveyor.width / 9)}
+                  y1={conveyor.y}
+                  x2={conveyor.x + (i + 1) * (conveyor.width / 9)}
+                  y2={conveyor.y + 8}
+                  stroke="#2d3748"
+                  strokeWidth="1"
+                />
+              ))}
+
+              {/* Animated Product Boxes - Only show when from station has production */}
+              {showBoxes && (
+                <>
+                  <g
+                    className="conveyor-box"
+                    style={{ animationPlayState: animationPaused ? 'paused' : 'running' }}
+                  >
+                    <rect
+                      x={conveyor.x + 5}
+                      y={conveyor.y - 12}
+                      width="14"
+                      height="10"
+                      rx="2"
+                      fill="#f59e0b"
+                      stroke="#d97706"
+                      strokeWidth="1"
+                    />
+                    <rect
+                      x={conveyor.x + 7}
+                      y={conveyor.y - 10}
+                      width="10"
+                      height="2"
+                      fill="#fbbf24"
+                      opacity="0.6"
+                    />
+                  </g>
+
+                  <g
+                    className="conveyor-box-delayed-2"
+                    style={{ animationPlayState: animationPaused ? 'paused' : 'running' }}
+                  >
+                    <rect
+                      x={conveyor.x + 5}
+                      y={conveyor.y - 12}
+                      width="14"
+                      height="10"
+                      rx="2"
+                      fill="#f59e0b"
+                      stroke="#d97706"
+                      strokeWidth="1"
+                    />
+                    <rect
+                      x={conveyor.x + 7}
+                      y={conveyor.y - 10}
+                      width="10"
+                      height="2"
+                      fill="#fbbf24"
+                      opacity="0.6"
+                    />
+                  </g>
+                </>
+              )}
+
+              {/* Waiting box indicator when destination is not running */}
+              {showBoxes && animationPaused && (
+                <g className="waiting-box">
+                  <rect
+                    x={conveyor.x + conveyor.width - 20}
+                    y={conveyor.y - 12}
+                    width="14"
+                    height="10"
+                    rx="2"
+                    fill="#ef4444"
+                    stroke="#dc2626"
+                    strokeWidth="1"
+                  >
+                    <animate
+                      attributeName="opacity"
+                      values="1;0.5;1"
+                      dur="1s"
+                      repeatCount="indefinite"
+                    />
+                  </rect>
+                  <rect
+                    x={conveyor.x + conveyor.width - 18}
+                    y={conveyor.y - 10}
+                    width="10"
+                    height="2"
+                    fill="#f87171"
+                    opacity="0.6"
+                  />
+                </g>
+              )}
+            </g>
+          );
+        })}
+
 
         {/* Production Stations */}
         {[
