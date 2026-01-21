@@ -63,6 +63,9 @@ const ComponentRenderer: React.FC<ComponentRendererProps> = ({
     // Inverse scale for elements that should not scale (text, controls)
     const inverseScale = `scale(${1 / scaleX}, ${1 / scaleY})`;
 
+    // Create unique class for this component instance to scope styles
+    const uniqueClass = `comp-${component.id.replace(/[^a-zA-Z0-9-_]/g, '_')}`;
+
     return (
         <g
             className={`layout-component ${isSelected ? 'selected' : ''} ${component.isLocked ? 'locked' : ''}`}
@@ -83,13 +86,13 @@ const ComponentRenderer: React.FC<ComponentRendererProps> = ({
                 height={scaledHeight}
                 viewBox={viewBox || `0 0 ${width} ${height}`}
                 preserveAspectRatio="none"
-                className={`component-svg-content ${template.category === 'floors' ? 'floor-component' : 'non-floor-component'}`}
+                className={`component-svg-content ${uniqueClass} ${template.category === 'floors' ? 'floor-component' : 'non-floor-component'}`}
             >
                 {/* For floors: hide text. For others: apply inverse scaling to keep text fixed */}
                 <style>
                     {template.category === 'floors'
-                        ? `.floor-component text, .floor-component rect[rx] { display: none; }`
-                        : `.non-floor-component text {
+                        ? `.${uniqueClass}.floor-component text, .${uniqueClass}.floor-component rect[rx] { display: none; }`
+                        : `.${uniqueClass}.non-floor-component text {
                             transform-origin: center;
                             transform: scale(${1 / scaleX}, ${1 / scaleY});
                         }`

@@ -1,8 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
     ProductionLine,
-    LayoutComponent,
-    LayoutConnection,
     ComponentTemplate,
     getLayoutById,
     addLayoutComponent,
@@ -14,12 +12,12 @@ import {
 import ComponentPalette from './ComponentPalette';
 import ComponentRenderer from './ComponentRenderer';
 import ConnectionRenderer from './ConnectionRenderer';
+import Factory3DLayout from '../Factory3DLayout';
 import './LayoutEditor.css';
 
 interface LayoutEditorProps {
     layoutId: string;
     readOnly?: boolean;
-    onSave?: () => void;
 }
 
 interface DragState {
@@ -38,7 +36,7 @@ interface ConnectionState {
     fromPointId?: string;
 }
 
-const LayoutEditor: React.FC<LayoutEditorProps> = ({ layoutId, readOnly = false, onSave }) => {
+const LayoutEditor: React.FC<LayoutEditorProps> = ({ layoutId, readOnly = false }) => {
     const [layout, setLayout] = useState<ProductionLine | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -58,9 +56,42 @@ const LayoutEditor: React.FC<LayoutEditorProps> = ({ layoutId, readOnly = false,
         isConnecting: false,
     });
     const [showPalette, setShowPalette] = useState(true);
+    const [is3DMode, setIs3DMode] = useState(false);
+
+    // Resize State
+    const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
+    const [rightSidebarWidth, setRightSidebarWidth] = useState(280);
+    const [isResizingLeft, setIsResizingLeft] = useState(false);
+    const [isResizingRight, setIsResizingRight] = useState(false);
 
     const svgRef = useRef<SVGSVGElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+
+    // Handle Resize Logic
+    useEffect(() => {
+        const handleMouseMoveGlobal = (e: MouseEvent) => {
+            if (isResizingLeft) {
+                setLeftSidebarWidth(Math.max(200, Math.min(500, e.clientX)));
+            } else if (isResizingRight) {
+                setRightSidebarWidth(Math.max(200, Math.min(500, window.innerWidth - e.clientX)));
+            }
+        };
+
+        const handleMouseUpGlobal = () => {
+            setIsResizingLeft(false);
+            setIsResizingRight(false);
+        };
+
+        if (isResizingLeft || isResizingRight) {
+            window.addEventListener('mousemove', handleMouseMoveGlobal);
+            window.addEventListener('mouseup', handleMouseUpGlobal);
+        }
+
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMoveGlobal);
+            window.removeEventListener('mouseup', handleMouseUpGlobal);
+        };
+    }, [isResizingLeft, isResizingRight]);
 
     // Get SVG coordinates from screen coordinates (NEW implementation for infinite canvas)
     const getSvgPoint = useCallback(
@@ -333,7 +364,8 @@ const LayoutEditor: React.FC<LayoutEditorProps> = ({ layoutId, readOnly = false,
     // Handle zoom
     const handleWheel = useCallback((e: React.WheelEvent) => {
         e.preventDefault();
-        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        // Reduced sensitivity for smoother zooming
+        const delta = e.deltaY > 0 ? 0.98 : 1.02;
         setZoom((prev) => Math.min(Math.max(prev * delta, 0.1), 5));
     }, []);
 
@@ -364,9 +396,7 @@ const LayoutEditor: React.FC<LayoutEditorProps> = ({ layoutId, readOnly = false,
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [selectedComponentId, readOnly, handleDeleteComponent]);
 
-    // Parse viewBox
-    const viewBoxParts = layout?.viewBox.split(' ').map(Number) || [0, 0, 1600, 600];
-    const viewBoxWidth = viewBoxParts[2];
+
 
 
     // State for transform operations (resize/rotate)
@@ -387,15 +417,7 @@ const LayoutEditor: React.FC<LayoutEditorProps> = ({ layoutId, readOnly = false,
 
 
 
-    // Helper for rotating points
-    const rotatePoint = (x: number, y: number, cx: number, cy: number, angle: number) => {
-        const rad = (angle * Math.PI) / 180;
-        const cos = Math.cos(rad);
-        const sin = Math.sin(rad);
-        const nx = cos * (x - cx) - sin * (y - cy) + cx;
-        const ny = sin * (x - cx) + cos * (y - cy) + cy;
-        return { x: nx, y: ny };
-    };
+
 
     // Handle Resize Start
     const handleResizeStart = (e: React.MouseEvent, componentId: string, handle: string) => {
@@ -508,8 +530,6 @@ const LayoutEditor: React.FC<LayoutEditorProps> = ({ layoutId, readOnly = false,
 
             let newScaleX = transformState.initialScaleX;
             let newScaleY = transformState.initialScaleY;
-            let newX = transformState.initialX;
-            let newY = transformState.initialY;
 
             const { width, height } = component.template;
 
@@ -626,343 +646,383 @@ const LayoutEditor: React.FC<LayoutEditorProps> = ({ layoutId, readOnly = false,
                     {connectionState.isConnecting && (
                         <span className="layout-editor__status">🔗 Bağlantı noktası seçin...</span>
                     )}
-                    {!readOnly && onSave && (
-                        <button className="layout-editor__btn layout-editor__btn--primary" onClick={onSave}>
-                            💾 Kaydet
-                        </button>
-                    )}
+                    <button
+                        className={`layout-editor__btn ${is3DMode ? 'layout-editor__btn--primary' : ''}`}
+                        onClick={() => setIs3DMode(!is3DMode)}
+                    >
+                        {is3DMode ? '↩ 2D Görünüm' : '🧊 3D Görünüm'}
+                    </button>
+
                 </div>
             </div>
 
             <div className="layout-editor__content">
-                {/* Sidebar: Palette + Properties */}
-                {!readOnly && (showPalette || selectedComponentId) && (
-                    <div className="layout-editor__sidebar">
-                        {showPalette && (
-                            <ComponentPalette
-                                onTemplateDrop={(template) => {
-                                    // Drop location: Center of current view
-                                    if (!svgRef.current) return;
-                                    const rect = svgRef.current.getBoundingClientRect();
-                                    const centerX = rect.width / 2;
-                                    const centerY = rect.height / 2;
-                                    const p = getSvgPoint(rect.left + centerX, rect.top + centerY);
-                                    handleTemplateDrop(template, p.x, p.y);
-                                }}
-                            />
-                        )}
+                {/* LEFT SIDEBAR: Palette */}
+                {!readOnly && showPalette && (
+                    <div className="layout-editor__sidebar sidebar-left" style={{ width: leftSidebarWidth }}>
+                        <ComponentPalette
+                            onTemplateDrop={(template) => {
+                                // Drop location: Center of current view
+                                if (!svgRef.current) return;
+                                const rect = svgRef.current.getBoundingClientRect();
+                                const centerX = rect.width / 2;
+                                const centerY = rect.height / 2;
+                                const p = getSvgPoint(rect.left + centerX, rect.top + centerY);
+                                handleTemplateDrop(template, p.x, p.y);
+                            }}
+                        />
+                        <div
+                            className="resize-handle resize-handle-right"
+                            onMouseDown={() => setIsResizingLeft(true)}
+                        />
+                    </div>
+                )}
+                {/* CENTER: Canvas */}
+                <div className="layout-editor__canvas">
+                    {is3DMode ? (
+                        <div style={{ flex: 1, overflow: 'hidden', height: '100%' }}>
+                            <Factory3DLayout components={layout?.components || []} />
+                        </div>
+                    ) : (
+                        <div
+                            className="layout-editor__svg-container"
+                            onMouseDown={handlePanStart}
+                            onMouseMove={handleMouseMoveWrapper}
+                            onMouseUp={handleMouseUpWrapper}
+                            onMouseLeave={handleMouseUpWrapper}
+                            onWheel={handleWheel}
+                            onDragOver={(e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = 'copy';
+                            }}
+                            onDrop={(e) => {
+                                e.preventDefault();
+                                const templateData = e.dataTransfer.getData('application/json');
+                                if (templateData) {
+                                    try {
+                                        const template = JSON.parse(templateData);
+                                        const point = getSvgPoint(e.clientX, e.clientY);
+                                        handleTemplateDrop(template, point.x, point.y);
+                                    } catch (err) {
+                                        console.error('Error parsing template data:', err);
+                                    }
+                                }
+                            }}
+                            style={{ width: '100%', height: '100%', cursor: isPanning ? 'grabbing' : 'grab' }}
+                        >
+                            <svg
+                                ref={svgRef}
+                                width="100%"
+                                height="100%"
+                                style={{ display: 'block' }}
+                            >
+                                <defs>
+                                    <pattern id="editor-grid" width={layout!.gridSize} height={layout!.gridSize} patternUnits="userSpaceOnUse">
+                                        <path d={`M ${layout!.gridSize} 0 L 0 0 0 ${layout!.gridSize}`} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
+                                    </pattern>
+                                    {/* Arrow marker for connections */}
+                                    <marker
+                                        id="arrowhead"
+                                        markerWidth="12"
+                                        markerHeight="12"
+                                        refX="10"
+                                        refY="4"
+                                        orient="auto"
+                                        markerUnits="userSpaceOnUse"
+                                    >
+                                        <polygon points="0 0, 12 4, 0 8" fill="#60a5fa" />
+                                    </marker>
+                                </defs>
 
-                        {/* Properties Panel */}
-                        {selectedComponentId && (
-                            <div className="layout-editor__properties">
-                                <div className="layout-editor__properties-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <h3>Bileşen Özellikleri</h3>
-                                    {(() => {
-                                        const component = layout!.components.find((c) => c.id === selectedComponentId);
-                                        if (!component) return null;
-                                        return (
-                                            <button
-                                                className="layout-editor__btn layout-editor__btn--danger"
-                                                onClick={() => handleDeleteComponent(component.id)}
-                                                style={{ padding: '4px 10px', fontSize: '13px' }}
-                                                title="Bileşeni Sil"
-                                            >
-                                                🗑️ Sil
-                                            </button>
-                                        );
-                                    })()}
-                                </div>
-                                <div className="layout-editor__properties-content">
-                                    {(() => {
-                                        const component = layout!.components.find((c) => c.id === selectedComponentId);
-                                        if (!component) return null;
+                                {/* Infinite Canvas Group */}
+                                <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+                                    {/* Infinite Background */}
+                                    <rect
+                                        x="-50000"
+                                        y="-50000"
+                                        width="100000"
+                                        height="100000"
+                                        fill={layout!.backgroundColor}
+                                    />
+                                    <rect
+                                        x="-50000"
+                                        y="-50000"
+                                        width="100000"
+                                        height="100000"
+                                        fill="url(#editor-grid)"
+                                    />
 
-                                        // Handler to update component property
-                                        const handlePropertyChange = async (field: string, value: any) => {
-                                            // Update local state immediately
-                                            setLayout((prev) => {
-                                                if (!prev) return null;
-                                                return {
-                                                    ...prev,
-                                                    components: prev.components.map((c) =>
-                                                        c.id === component.id ? { ...c, [field]: value } : c
-                                                    ),
-                                                };
-                                            });
+                                    {/* Connections */}
+                                    {layout!.connections.map((connection) => (
+                                        <ConnectionRenderer
+                                            key={connection.id}
+                                            connection={connection}
+                                            components={layout!.components}
+                                            onClick={() => handleDeleteConnection(connection.id)}
+                                            readOnly={readOnly}
+                                        />
+                                    ))}
 
-                                            // Save to backend
-                                            try {
-                                                await updateLayoutComponent(layoutId, component.id, { [field]: value });
-                                            } catch (err) {
-                                                console.error('Error updating component property:', err);
-                                            }
-                                        };
+                                    {/* Components */}
+                                    {layout!.components
+                                        .sort((a, b) => a.zIndex - b.zIndex)
+                                        .map((component) => (
+                                            <ComponentRenderer
+                                                key={component.id}
+                                                component={component}
+                                                isSelected={selectedComponentId === component.id}
+                                                isConnecting={connectionState.isConnecting}
+                                                onDragStart={(e) => handleComponentDragStart(component.id, e)}
+                                                onClick={() => setSelectedComponentId(component.id)}
+                                                onConnectionPointClick={(pointId) => handleConnectionPointClick(component.id, pointId)}
+                                                onResizeStart={(e, handle) => handleResizeStart(e, component.id, handle)}
+                                                onRotateStart={(e) => handleRotateStart(e, component.id)}
+                                                readOnly={readOnly}
+                                            />
+                                        ))}
+                                </g>
+                            </svg>
+                        </div>
+                    )}
+                </div>
 
-                                        return (
-                                            <>
-                                                {/* İsim */}
-                                                <div className="property-row">
-                                                    <label>İsim:</label>
-                                                    <input
-                                                        type="text"
-                                                        value={component.instanceName}
-                                                        onChange={(e) => handlePropertyChange('instanceName', e.target.value)}
-                                                        className="property-input"
-                                                    />
-                                                </div>
-
-                                                {/* Tip (readonly) */}
-                                                <div className="property-row">
-                                                    <label>Tip:</label>
-                                                    <span className="property-value">{component.template?.type}</span>
-                                                </div>
-
-                                                {/* Pozisyon X */}
-                                                <div className="property-row">
-                                                    <label>Pozisyon X:</label>
-                                                    <input
-                                                        type="number"
-                                                        value={Math.round(component.x)}
-                                                        onChange={(e) => handlePropertyChange('x', parseFloat(e.target.value) || 0)}
-                                                        className="property-input property-input--number"
-                                                    />
-                                                </div>
-
-                                                {/* Pozisyon Y */}
-                                                <div className="property-row">
-                                                    <label>Pozisyon Y:</label>
-                                                    <input
-                                                        type="number"
-                                                        value={Math.round(component.y)}
-                                                        onChange={(e) => handlePropertyChange('y', parseFloat(e.target.value) || 0)}
-                                                        className="property-input property-input--number"
-                                                    />
-                                                </div>
-
-                                                {/* Katman (Z-Index) */}
-                                                <div className="property-row">
-                                                    <label>Katman (Z):</label>
-                                                    <input
-                                                        type="number"
-                                                        value={component.zIndex}
-                                                        onChange={(e) => handlePropertyChange('zIndex', parseInt(e.target.value) || 0)}
-                                                        className="property-input property-input--number"
-                                                    />
-                                                </div>
-
-                                                {/* Açı */}
-                                                <div className="property-row">
-                                                    <label>Açı:</label>
-                                                    <div className="property-input-group">
-                                                        <input
-                                                            type="number"
-                                                            min="0"
-                                                            max="360"
-                                                            value={Math.round(component.rotation)}
-                                                            onChange={(e) => handlePropertyChange('rotation', (parseFloat(e.target.value) || 0) % 360)}
-                                                            className="property-input property-input--number"
-                                                        />
-                                                        <span className="property-unit">°</span>
-                                                    </div>
-                                                </div>
-
-                                                {/* Boyut X */}
-                                                <div className="property-row">
-                                                    <label>Boyut X:</label>
-                                                    <div className="property-input-group">
-                                                        <input
-                                                            type="number"
-                                                            min="10"
-                                                            max="500"
-                                                            value={Math.round(component.scaleX * 100)}
-                                                            onChange={(e) => handlePropertyChange('scaleX', Math.max(0.1, (parseFloat(e.target.value) || 100) / 100))}
-                                                            className="property-input property-input--number"
-                                                        />
-                                                        <span className="property-unit">%</span>
-                                                    </div>
-                                                </div>
-
-                                                {/* Boyut Y */}
-                                                <div className="property-row">
-                                                    <label>Boyut Y:</label>
-                                                    <div className="property-input-group">
-                                                        <input
-                                                            type="number"
-                                                            min="10"
-                                                            max="500"
-                                                            value={Math.round(component.scaleY * 100)}
-                                                            onChange={(e) => handlePropertyChange('scaleY', Math.max(0.1, (parseFloat(e.target.value) || 100) / 100))}
-                                                            className="property-input property-input--number"
-                                                        />
-                                                        <span className="property-unit">%</span>
-                                                    </div>
-                                                </div>
-
-                                                {/* Kilitli */}
-                                                <div className="property-row">
-                                                    <label>Kilitli:</label>
-                                                    <label className="property-toggle">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={component.isLocked}
-                                                            onChange={(e) => handlePropertyChange('isLocked', e.target.checked)}
-                                                        />
-                                                        <span className="property-toggle__slider"></span>
-                                                        <span className="property-toggle__label">
-                                                            {component.isLocked ? '🔒 Kilitli' : '🔓 Açık'}
-                                                        </span>
-                                                    </label>
-                                                </div>
-
-                                                {/* Katman Sırası */}
-                                                <div className="property-row">
-                                                    <label>Katman (zIndex):</label>
-                                                    <span className="property-value">{component.zIndex}</span>
-                                                </div>
-
-                                                {/* Katman Kontrolleri */}
-                                                <div className="property-row" style={{ gap: '8px' }}>
-                                                    <button
-                                                        className="palette-btn"
-                                                        style={{ flex: 1, fontSize: '11px' }}
-                                                        onClick={() => {
-                                                            const minZ = Math.min(...layout!.components.map(c => c.zIndex));
-                                                            handlePropertyChange('zIndex', minZ - 1);
-                                                        }}
-                                                        title="En arkaya gönder"
-                                                    >
-                                                        ⬇️ Arkaya
-                                                    </button>
-                                                    <button
-                                                        className="palette-btn"
-                                                        style={{ flex: 1, fontSize: '11px' }}
-                                                        onClick={() => {
-                                                            const maxZ = Math.max(...layout!.components.map(c => c.zIndex));
-                                                            handlePropertyChange('zIndex', maxZ + 1);
-                                                        }}
-                                                        title="En öne getir"
-                                                    >
-                                                        ⬆️ Öne
-                                                    </button>
-                                                </div>
-                                            </>
-                                        );
-                                    })()}
-                                </div>
+                {/* RIGHT SIDEBAR: Properties */}
+                {!readOnly && selectedComponentId && (
+                    <div className="layout-editor__sidebar sidebar-right" style={{ width: rightSidebarWidth, borderLeft: '1px solid #374151', borderRight: 'none' }}>
+                        <div
+                            className="resize-handle resize-handle-left"
+                            onMouseDown={() => setIsResizingRight(true)}
+                        />
+                        <div className="layout-editor__properties">
+                            <div className="layout-editor__properties-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <h3>Bileşen Özellikleri</h3>
+                                {(() => {
+                                    const component = layout!.components.find((c) => c.id === selectedComponentId);
+                                    if (!component) return null;
+                                    return (
+                                        <button
+                                            className="layout-editor__btn layout-editor__btn--danger"
+                                            onClick={() => handleDeleteComponent(component.id)}
+                                            style={{ padding: '4px 10px', fontSize: '13px' }}
+                                            title="Bileşeni Sil"
+                                        >
+                                            🗑️ Sil
+                                        </button>
+                                    );
+                                })()}
                             </div>
-                        )}
+                            <div className="layout-editor__properties-content">
+                                {(() => {
+                                    const component = layout!.components.find((c) => c.id === selectedComponentId);
+                                    if (!component) return null;
+
+                                    // Handler to update component property
+                                    const handlePropertyChange = async (field: string, value: any) => {
+                                        // Update local state immediately
+                                        setLayout((prev) => {
+                                            if (!prev) return null;
+                                            return {
+                                                ...prev,
+                                                components: prev.components.map((c) =>
+                                                    c.id === component.id ? { ...c, [field]: value } : c
+                                                ),
+                                            };
+                                        });
+
+                                        // Save to backend
+                                        try {
+                                            await updateLayoutComponent(layoutId, component.id, { [field]: value });
+                                        } catch (err) {
+                                            console.error('Error updating component property:', err);
+                                        }
+                                    };
+
+                                    return (
+                                        <>
+                                            {/* İsim */}
+                                            <div className="property-row">
+                                                <label>İsim:</label>
+                                                <input
+                                                    type="text"
+                                                    value={component.instanceName}
+                                                    onChange={(e) => handlePropertyChange('instanceName', e.target.value)}
+                                                    className="property-input"
+                                                />
+                                            </div>
+
+                                            {/* Tip (readonly) */}
+                                            <div className="property-row">
+                                                <label>Tip:</label>
+                                                <span className="property-value">{component.template?.type}</span>
+                                            </div>
+
+                                            {/* Pozisyon X */}
+                                            <div className="property-row">
+                                                <label>Pozisyon X:</label>
+                                                <input
+                                                    type="number"
+                                                    value={Math.round(component.x)}
+                                                    onChange={(e) => handlePropertyChange('x', parseFloat(e.target.value) || 0)}
+                                                    className="property-input property-input--number"
+                                                />
+                                            </div>
+
+                                            {/* Pozisyon Y */}
+                                            <div className="property-row">
+                                                <label>Pozisyon Y:</label>
+                                                <input
+                                                    type="number"
+                                                    value={Math.round(component.y)}
+                                                    onChange={(e) => handlePropertyChange('y', parseFloat(e.target.value) || 0)}
+                                                    className="property-input property-input--number"
+                                                />
+                                            </div>
+
+                                            {/* Katman (Z-Index) */}
+                                            <div className="property-row">
+                                                <label>Katman (Z):</label>
+                                                <input
+                                                    type="number"
+                                                    value={component.zIndex}
+                                                    onChange={(e) => handlePropertyChange('zIndex', parseInt(e.target.value) || 0)}
+                                                    className="property-input property-input--number"
+                                                />
+                                            </div>
+
+                                            {/* Açı */}
+                                            <div className="property-row">
+                                                <label>Açı:</label>
+                                                <div className="property-input-group">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max="360"
+                                                        value={Math.round(component.rotation)}
+                                                        onChange={(e) => handlePropertyChange('rotation', (parseFloat(e.target.value) || 0) % 360)}
+                                                        className="property-input property-input--number"
+                                                    />
+                                                    <span className="property-unit">°</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Boyut X */}
+                                            <div className="property-row">
+                                                <label>Boyut X:</label>
+                                                <div className="property-input-group">
+                                                    <input
+                                                        type="number"
+                                                        min="10"
+                                                        max="500"
+                                                        value={Math.round(component.scaleX * 100)}
+                                                        onChange={(e) => handlePropertyChange('scaleX', Math.max(0.1, (parseFloat(e.target.value) || 100) / 100))}
+                                                        className="property-input property-input--number"
+                                                    />
+                                                    <span className="property-unit">%</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Boyut Y */}
+                                            <div className="property-row">
+                                                <label>Boyut Y:</label>
+                                                <div className="property-input-group">
+                                                    <input
+                                                        type="number"
+                                                        min="10"
+                                                        max="500"
+                                                        value={Math.round(component.scaleY * 100)}
+                                                        onChange={(e) => handlePropertyChange('scaleY', Math.max(0.1, (parseFloat(e.target.value) || 100) / 100))}
+                                                        className="property-input property-input--number"
+                                                    />
+                                                    <span className="property-unit">%</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Kilitli */}
+                                            <div className="property-row">
+                                                <label>Kilitli:</label>
+                                                <label className="property-toggle">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={component.isLocked}
+                                                        onChange={(e) => handlePropertyChange('isLocked', e.target.checked)}
+                                                    />
+                                                    <span className="property-toggle__slider"></span>
+                                                    <span className="property-toggle__label">
+                                                        {component.isLocked ? '🔒 Kilitli' : '🔓 Açık'}
+                                                    </span>
+                                                </label>
+                                            </div>
+
+                                            {/* Katman Sırası */}
+                                            <div className="property-row">
+                                                <label>Katman (zIndex):</label>
+                                                <span className="property-value">{component.zIndex}</span>
+                                            </div>
+
+                                            {/* Katman Kontrolleri */}
+                                            <div className="property-row" style={{ gap: '8px' }}>
+                                                <button
+                                                    className="palette-btn"
+                                                    style={{ flex: 1, fontSize: '11px' }}
+                                                    onClick={() => {
+                                                        const minZ = Math.min(...layout!.components.map(c => c.zIndex));
+                                                        handlePropertyChange('zIndex', minZ - 1);
+                                                    }}
+                                                    title="En arkaya gönder"
+                                                >
+                                                    ⬇️ Arkaya
+                                                </button>
+                                                <button
+                                                    className="palette-btn"
+                                                    style={{ flex: 1, fontSize: '11px' }}
+                                                    onClick={() => {
+                                                        const maxZ = Math.max(...layout!.components.map(c => c.zIndex));
+                                                        handlePropertyChange('zIndex', maxZ + 1);
+                                                    }}
+                                                    title="En öne getir"
+                                                >
+                                                    ⬆️ Öne
+                                                </button>
+                                            </div>
+
+                                            {/* 3D Renk Seçimi - Sadece belirli kategoriler veya hepsi için */}
+                                            <div className="property-row">
+                                                <label>3D Rengi:</label>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <input
+                                                        type="color"
+                                                        value={component.customData?.color || '#3b82f6'}
+                                                        onChange={(e) => {
+                                                            const newCustomData = { ...component.customData, color: e.target.value };
+                                                            handlePropertyChange('customData', newCustomData);
+                                                        }}
+                                                        style={{
+                                                            width: '32px',
+                                                            height: '32px',
+                                                            padding: '0',
+                                                            border: 'none',
+                                                            borderRadius: '4px',
+                                                            cursor: 'pointer',
+                                                            backgroundColor: 'transparent'
+                                                        }}
+                                                    />
+                                                    <span style={{ fontSize: '12px', fontFamily: 'monospace', color: '#9ca3af' }}>
+                                                        {component.customData?.color?.toUpperCase() || '#3B82F6'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
+                            </div>
+                        </div>
                     </div>
                 )}
 
-                {/* Canvas */}
-                <div
-                    className="layout-editor__canvas"
-                    onWheel={handleWheel}
-                    onMouseDown={handlePanStart}
-                    onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = 'copy';
-                    }}
-                    onDrop={(e) => {
-                        e.preventDefault();
-                        const templateData = e.dataTransfer.getData('application/json');
-                        if (templateData) {
-                            try {
-                                const template = JSON.parse(templateData);
-                                const point = getSvgPoint(e.clientX, e.clientY);
-                                handleTemplateDrop(template, point.x, point.y);
-                            } catch (err) {
-                                console.error('Error parsing template data:', err);
-                            }
-                        }
-                    }}
-                >
-                    <svg
-                        ref={svgRef}
-                        width="100%"
-                        height="100%"
-                        // Removed viewBox to enable infinite canvas behavior
-                        // viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`} 
-                        preserveAspectRatio="xMidYMid slice"
-                        onMouseMove={handleMouseMoveWrapper}
-                        onMouseUp={handleMouseUpWrapper}
-                        onMouseLeave={handleMouseUpWrapper}
-                    >
-                        <defs>
-                            <pattern id="editor-grid" width={layout!.gridSize} height={layout!.gridSize} patternUnits="userSpaceOnUse">
-                                <path
-                                    d={`M ${layout!.gridSize} 0 L 0 0 0 ${layout!.gridSize}`}
-                                    fill="none"
-                                    stroke="#363a45"
-                                    strokeWidth="0.5"
-                                    opacity="0.3"
-                                />
-                            </pattern>
-                            <marker
-                                id="connection-arrow"
-                                markerWidth="12"
-                                markerHeight="12"
-                                refX="10"
-                                refY="4"
-                                orient="auto"
-                                markerUnits="userSpaceOnUse"
-                            >
-                                <polygon points="0 0, 12 4, 0 8" fill="#60a5fa" />
-                            </marker>
-                        </defs>
 
-                        {/* Infinite Canvas Group */}
-                        <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
-                            {/* Infinite Background */}
-                            <rect
-                                x="-50000"
-                                y="-50000"
-                                width="100000"
-                                height="100000"
-                                fill={layout!.backgroundColor}
-                            />
-                            <rect
-                                x="-50000"
-                                y="-50000"
-                                width="100000"
-                                height="100000"
-                                fill="url(#editor-grid)"
-                            />
-
-                            {/* Connections */}
-                            {layout!.connections.map((connection) => (
-                                <ConnectionRenderer
-                                    key={connection.id}
-                                    connection={connection}
-                                    components={layout!.components}
-                                    onClick={() => handleDeleteConnection(connection.id)}
-                                    readOnly={readOnly}
-                                />
-                            ))}
-
-                            {/* Components */}
-                            {layout!.components
-                                .sort((a, b) => a.zIndex - b.zIndex)
-                                .map((component) => (
-                                    <ComponentRenderer
-                                        key={component.id}
-                                        component={component}
-                                        isSelected={selectedComponentId === component.id}
-                                        isConnecting={connectionState.isConnecting}
-                                        onDragStart={(e) => handleComponentDragStart(component.id, e)}
-                                        onClick={() => setSelectedComponentId(component.id)}
-                                        onConnectionPointClick={(pointId) => handleConnectionPointClick(component.id, pointId)}
-                                        onResizeStart={(e, handle) => handleResizeStart(e, component.id, handle)}
-                                        onRotateStart={(e) => handleRotateStart(e, component.id)}
-                                        readOnly={readOnly}
-                                    />
-                                ))}
-                        </g>
-                    </svg>
-                </div>
             </div>
 
-        </div>
+        </div >
     );
 };
 

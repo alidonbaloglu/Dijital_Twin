@@ -8,7 +8,8 @@ type AppMode = 'view' | 'edit';
 export default function App() {
   const [mode, setMode] = useState<AppMode>('view');
   const [showImportDialog, setShowImportDialog] = useState(false);
-  const [layoutId, setLayoutId] = useState<string>('default-production-line');
+  const [layoutId] = useState<string>('default-production-line');
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const handleStationClick = (stationId: string) => {
     console.log(`Station ${stationId} clicked`);
@@ -18,6 +19,8 @@ export default function App() {
     console.log('Template imported:', template);
     setShowImportDialog(false);
   };
+
+
 
   return (
     <div style={{ width: '100%', height: '100vh', margin: 0, padding: 0, display: 'flex', flexDirection: 'column' }}>
@@ -91,7 +94,7 @@ export default function App() {
       {/* Main Content */}
       <div style={{ flex: 1, overflow: 'hidden' }}>
         {mode === 'view' ? (
-          <FactoryLayout onStationClick={handleStationClick} layoutId={layoutId} />
+          <FactoryLayout key={refreshKey} onStationClick={handleStationClick} layoutId={layoutId} />
         ) : (
           <LayoutEditor layoutId={layoutId} readOnly={false} />
         )}

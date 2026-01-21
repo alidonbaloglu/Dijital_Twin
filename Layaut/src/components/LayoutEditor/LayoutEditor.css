@@ -131,16 +131,74 @@
   transition: transform 0.1s ease-out;
 }
 
+/* Sidebar Wrapper */
+.layout-editor__sidebar {
+  width: 280px;
+  background-color: #1f2937;
+  backdrop-filter: blur(10px);
+  border-left: 1px solid #374151;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  /* Enable vertical scrolling */
+  max-height: 100%;
+  /* Ensure it doesn't exceed parent height */
+  padding-bottom: 20px;
+  /* Add some breathing room at the bottom */
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  flex-shrink: 0;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+}
+
+.sidebar-left {
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-right {
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Resize Handles */
+.resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  z-index: 20;
+  transition: background-color 0.2s;
+}
+
+.resize-handle:hover,
+.resize-handle:active {
+  background-color: #3b82f6;
+}
+
+.resize-handle-right {
+  right: 0;
+}
+
+.resize-handle-left {
+  left: 0;
+}
+
 /* Properties Panel */
 .layout-editor__properties {
   width: 100%;
   flex-shrink: 0;
-  background-color: rgba(0, 0, 0, 0.2);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: transparent;
+  /* Remove background as sidebar has it */
+  border-top: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  max-height: 40%;
+  max-height: 100%;
+  /* Full height */
+  flex: 1;
+  /* Take available space */
 }
 
 .layout-editor__properties-header {
@@ -273,20 +331,7 @@
   color: #9ca3af;
 }
 
-/* Sidebar Wrapper */
-.layout-editor__sidebar {
-  width: 320px;
-  background-color: rgba(30, 33, 40, 0.95);
-  backdrop-filter: blur(10px);
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2);
-  z-index: 10;
-  height: 100%;
-  min-height: 0;
-}
+
 
 /* Component Palette */
 .component-palette {

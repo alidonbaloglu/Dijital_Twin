@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { ComponentTemplate, createComponentTemplate, ConnectionPoint } from '../../services/layoutApi';
 import { stripSvgTags, extractViewBox } from '../../utils/svgUtils';
+import { dxfToSvg } from '../../utils/dxfUtils';
 import './LayoutEditor.css';
 
 interface ImportDialogProps {
@@ -17,6 +18,7 @@ const COMPONENT_TYPES = [
     { value: 'AGV', label: 'AGV' },
     { value: 'SENSOR', label: 'Sensör' },
     { value: 'OTHER', label: 'Diğer' },
+    { value: 'FLOOR', label: 'Zemin/Yapı' },
 ];
 
 const importDialog: React.FC<ImportDialogProps> = ({ isOpen, onClose, onImportComplete }) => {
@@ -43,10 +45,8 @@ const importDialog: React.FC<ImportDialogProps> = ({ isOpen, onClose, onImportCo
         setIsDragging(false);
 
         const file = e.dataTransfer.files[0];
-        if (file && file.type === 'image/svg+xml') {
+        if (file) {
             processFile(file);
-        } else {
-            setError('Lütfen bir SVG dosyası yükleyin');
         }
     }, []);
 
@@ -60,55 +60,112 @@ const importDialog: React.FC<ImportDialogProps> = ({ isOpen, onClose, onImportCo
 
     // Process uploaded file
     const processFile = (file: File) => {
+        const extension = file.name.split('.').pop()?.toLowerCase();
+
+        if (extension === 'dwg') {
+            setError('DWG dosyaları doğrudan tarayıcıda açılamaz. Lütfen dosyanızı DXF formatında kaydedip tekrar deneyin.');
+            return;
+        }
+
+        if (extension === 'step' || extension === 'stp') {
+            setError('STEP dosyaları 3D formatındadır. Bu editör 2D çalıştığı için lütfen CAD programınızdan "2D DXF" veya "SVG" formatında çıktı alıp yükleyin.');
+            return;
+        }
+
+        if (extension !== 'svg' && extension !== 'dxf') {
+            setError('Lütfen .svg, .dxf, .dwg veya .step uzantılı bir dosya yükleyin.');
+            return;
+        }
+
         const reader = new FileReader();
         reader.onload = (e) => {
             const content = e.target?.result as string;
-
-            // Clean SVG content
-            const cleanedContent = stripSvgTags(content);
-            const extractedViewBox = extractViewBox(content);
-
-            setSvgContent(cleanedContent);
-            setViewBox(extractedViewBox);
+            const fileName = file.name.replace(/\.(svg|dxf)$/i, '');
+            setName(fileName);
             setError(null);
 
-            // Extract dimensions from SVG
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(content, 'image/svg+xml');
-            const svgElement = doc.querySelector('svg');
+            if (extension === 'dxf') {
+                setIsLoading(true);
+                // Wrap in setTimeout to allow UI to update loading state
+                setTimeout(() => {
+                    try {
+                        const result = dxfToSvg(content);
 
-            if (svgElement) {
-                // Try to get dimensions from viewBox
-                let w = 100;
-                let h = 100;
+                        if (!result.svg && result.stats.processed === 0) {
+                            setError(`DXF dosyası okunamadı. Desteklenen eleman bulunamadı. (Atlanan: ${result.stats.skipped} adet - ${Object.keys(result.stats.skippedTypes).join(', ')})`);
+                            setIsLoading(false);
+                            return;
+                        }
 
-                if (extractedViewBox) {
-                    const parts = extractedViewBox.split(/\s+/).map(Number);
-                    if (parts.length >= 4) {
-                        w = parts[2];
-                        h = parts[3];
+                        // Check for skipped entities warning
+                        if (result.stats.skipped > 0) {
+                            const skipped = Object.entries(result.stats.skippedTypes)
+                                .map(([k, v]) => `${k} (${v})`)
+                                .join(', ');
+                            console.warn(`DXF Import Warning: Skipped ${result.stats.skipped} entities: ${skipped}`);
+                            // Optional: Show warning to user? For now just log.
+                        }
+
+                        setSvgContent(result.svg);
+                        setViewBox(result.viewBox);
+                        setWidth(Math.round(result.width));
+                        setHeight(Math.round(result.height));
+
+                        // Default connection points for DXF geometry
+                        setConnectionPoints([
+                            { id: 'left', x: 0, y: result.height / 2, direction: 'left' },
+                            { id: 'right', x: result.width, y: result.height / 2, direction: 'right' },
+                        ]);
+
+                        // Auto-detect floor type if large dimensions
+                        if (result.width > 500 || result.height > 500) {
+                            setType('FLOOR');
+                            setCategory('floors');
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        setError(err instanceof Error ? err.message : 'DXF dönüştürme hatası.');
+                    } finally {
+                        setIsLoading(false);
                     }
-                } else {
-                    // Try width/height attributes
-                    w = parseFloat(svgElement.getAttribute('width') || '100');
-                    h = parseFloat(svgElement.getAttribute('height') || '100');
+                }, 100);
+            } else {
+                // Handle SVG
+                const cleanedContent = stripSvgTags(content);
+                const extractedViewBox = extractViewBox(content);
+
+                setSvgContent(cleanedContent);
+                setViewBox(extractedViewBox);
+
+                // Extract dimensions from SVG
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(content, 'image/svg+xml');
+                const svgElement = doc.querySelector('svg');
+
+                if (svgElement) {
+                    let w = 100;
+                    let h = 100;
+
+                    if (extractedViewBox) {
+                        const parts = extractedViewBox.split(/\s+/).map(Number);
+                        if (parts.length >= 4) {
+                            w = parts[2];
+                            h = parts[3];
+                        }
+                    } else {
+                        w = parseFloat(svgElement.getAttribute('width') || '100');
+                        h = parseFloat(svgElement.getAttribute('height') || '100');
+                    }
+
+                    setWidth(w);
+                    setHeight(h);
+
+                    setConnectionPoints([
+                        { id: 'left', x: 0, y: h / 2, direction: 'left' },
+                        { id: 'right', x: w, y: h / 2, direction: 'right' },
+                    ]);
                 }
-
-                setWidth(w);
-                setHeight(h);
-
-                // Update connection points based on dimensions
-                setConnectionPoints([
-                    { id: 'left', x: 0, y: h / 2, direction: 'left' },
-                    { id: 'right', x: w, y: h / 2, direction: 'right' },
-                    { id: 'top', x: w / 2, y: 0, direction: 'top' },
-                    { id: 'bottom', x: w / 2, y: h, direction: 'bottom' },
-                ]);
             }
-
-            // Set default name from filename
-            const fileName = file.name.replace('.svg', '');
-            setName(fileName);
         };
         reader.readAsText(file);
     };
@@ -213,12 +270,12 @@ const importDialog: React.FC<ImportDialogProps> = ({ isOpen, onClose, onImportCo
                                 SVG dosyasını sürükleyin veya tıklayın
                             </div>
                             <div className="import-dialog__dropzone-hint">
-                                Figma, Adobe Illustrator, AutoCAD'den export edilmiş SVG dosyaları
+                                Desteklenenler: .svg, .dxf (DWG/STEP için dönüştürme uyarısı verilir)
                             </div>
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept=".svg,image/svg+xml"
+                                accept=".svg,image/svg+xml,.dxf,.dwg,.step,.stp"
                                 style={{ display: 'none' }}
                                 onChange={handleFileSelect}
                             />

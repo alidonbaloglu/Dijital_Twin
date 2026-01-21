@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * Layout API Service - Backend Layout API ile iletişim
  */
@@ -121,11 +122,11 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
 // ============================================
 
 export async function getLayouts(): Promise<ProductionLine[]> {
-    return fetchApi<ProductionLine[]>('/api/layouts');
+    return fetchApi<ProductionLine[]>(`/api/layouts?_t=${Date.now()}`);
 }
 
 export async function getLayoutById(id: string): Promise<ProductionLine> {
-    return fetchApi<ProductionLine>(`/api/layouts/${id}`);
+    return fetchApi<ProductionLine>(`/api/layouts/${id}?_t=${Date.now()}`);
 }
 
 export async function createLayout(data: {
