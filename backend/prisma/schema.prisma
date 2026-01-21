@@ -38,5 +38,106 @@ model StationHistory {
   @@index([stationId, timestamp])
 }
 
+// ============================================
+// DYNAMIC LAYOUT SYSTEM MODELS
+// ============================================
+
+// Bileşen şablonları - Import edilen SVG tasarımları
+model ComponentTemplate {
+  id              String   @id @default(cuid())
+  name            String   // Örn: "Kaynak İstasyonu", "Konveyör 1m"
+  type            String   // STATION, CONVEYOR, ROBOT, BUFFER, AGV, SENSOR, OTHER
+  category        String   @default("default") // Kategorileme için
+  svgContent      String   // SVG içeriği (XML string)
+  width           Float    // Varsayılan genişlik (px)
+  height          Float    // Varsayılan yükseklik (px)
+  connectionPoints String  // JSON: [{id, x, y, direction}] - Bağlantı noktaları
+  metadata        String   @default("{}") // JSON: Ek bilgiler (cycleTime, capacity, vb.)
+  thumbnail       String?  // Base64 önizleme resmi
+  isDefault       Boolean  @default(false) // Varsayılan şablon mu?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  layoutComponents LayoutComponent[]
+  
+  @@map("component_templates")
+}
+
+// Üretim hattı tanımları
+model ProductionLine {
+  id          String   @id @default(cuid())
+  name        String   // Örn: "Ana Üretim Hattı", "Montaj Hattı A"
+  description String?
+  isActive    Boolean  @default(true)
+  viewBox     String   @default("0 0 1600 600") // SVG viewBox
+  gridSize    Int      @default(20) // Snap-to-grid boyutu
+  backgroundColor String @default("#2a2e38")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  components  LayoutComponent[]
+  connections LayoutConnection[]
+  
+  @@map("production_lines")
+}
+
+// Layout üzerine yerleştirilmiş bileşenler
+model LayoutComponent {
+  id              String   @id @default(cuid())
+  productionLineId String
+  templateId      String
+  instanceName    String   // Örn: "ST01", "CONV-01", "ROBOT-A"
+  x               Float    // X pozisyonu
+  y               Float    // Y pozisyonu
+  rotation        Float    @default(0) // Derece cinsinden rotasyon
+  scaleX          Float    @default(1) // X ölçeği
+  scaleY          Float    @default(1) // Y ölçeği
+  zIndex          Int      @default(0) // Katman sırası
+  isLocked        Boolean  @default(false) // Kilitli mi?
+  customData      String   @default("{}") // JSON: Özel veriler
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  productionLine  ProductionLine @relation(fields: [productionLineId], references: [id], onDelete: Cascade)
+  template        ComponentTemplate @relation(fields: [templateId], references: [id])
+  
+  // Bağlantı ilişkileri
+  outgoingConnections LayoutConnection[] @relation("FromComponent")
+  incomingConnections LayoutConnection[] @relation("ToComponent")
+  
+  @@map("layout_components")
+  @@index([productionLineId])
+}
+
+// Bileşenler arası bağlantılar
+model LayoutConnection {
+  id              String   @id @default(cuid())
+  productionLineId String
+  fromComponentId String
+  toComponentId   String
+  fromPointId     String   // Kaynak bağlantı noktası ID'si
+  toPointId       String   // Hedef bağlantı noktası ID'si
+  connectionType  String   @default("material") // material, electrical, data, pneumatic
+  pathStyle       String   @default("bezier") // bezier, straight, orthogonal
+  customPath      String?  // JSON: Özel path noktaları
+  color           String   @default("#60a5fa")
+  animated        Boolean  @default(true) // Animasyonlu mu?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  productionLine  ProductionLine @relation(fields: [productionLineId], references: [id], onDelete: Cascade)
+  fromComponent   LayoutComponent @relation("FromComponent", fields: [fromComponentId], references: [id], onDelete: Cascade)
+  toComponent     LayoutComponent @relation("ToComponent", fields: [toComponentId], references: [id], onDelete: Cascade)
+  
+  @@map("layout_connections")
+  @@index([productionLineId])
+}
+
 // SQLite enum desteklemediği için status alanları String olarak tanımlandı
 // Geçerli değerler: RUNNING, STOPPED, ERROR, MAINTENANCE
+// Component Types: STATION, CONVEYOR, ROBOT, BUFFER, AGV, SENSOR, OTHER
+// Connection Types: material, electrical, data, pneumatic

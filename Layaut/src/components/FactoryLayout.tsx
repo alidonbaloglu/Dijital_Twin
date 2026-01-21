@@ -1,27 +1,112 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useStations } from '../hooks/useStations';
 import { getStationById, type StationStatus, type StationInfo } from '../services/api';
+import { getLayoutById, ProductionLine, LayoutComponent, ConnectionPoint } from '../services/layoutApi';
 import StationInfoPopover from './StationInfoPopover';
+import ConnectionRenderer from './LayoutEditor/ConnectionRenderer';
 import '../styles/factory.css';
+
+import { stripSvgTags, extractViewBox } from '../utils/svgUtils';
 
 interface FactoryLayoutProps {
   onStationClick?: (stationId: string) => void;
   useApi?: boolean; // API kullanımını açıp kapatmak için
+  layoutId?: string; // Dinamik layout için layout ID
 }
+
+
+// Helper to parse connection points
+const parseConnectionPoints = (points: any): ConnectionPoint[] => {
+  if (typeof points === 'string') {
+    try {
+      return JSON.parse(points);
+    } catch {
+      return [];
+    }
+  }
+  return points || [];
+};
 
 const FactoryLayout: React.FC<FactoryLayoutProps> = ({
   onStationClick,
   useApi = true, // Varsayılan olarak API kullan
+  layoutId = 'default-production-line',
 }) => {
   // API'den istasyonları yükle
-  const { stations, loading, error, getStationById: fetchStationById } = useStations();
+  const { stations, loading: stationsLoading, error: stationsError, getStationById: fetchStationById } = useStations();
+
+  // Layout state
+  const [layout, setLayout] = useState<ProductionLine | null>(null);
+  const [layoutLoading, setLayoutLoading] = useState(true);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
+
+  // Zoom and Pan state
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
 
   const [selectedStation, setSelectedStation] = useState<StationInfo | null>(null);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [popoverPosition, setPopoverPosition] = useState<{ x: number; y: number } | undefined>();
   const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const handleStationClick = async (stationId: string, event: React.MouseEvent<SVGGElement>) => {
+  // Load layout from API
+  useEffect(() => {
+    const loadLayout = async () => {
+      try {
+        setLayoutLoading(true);
+        const data = await getLayoutById(layoutId);
+        setLayout(data);
+        setLayoutError(null);
+      } catch (err) {
+        setLayoutError(err instanceof Error ? err.message : 'Layout yüklenemedi');
+        console.error('Error loading layout:', err);
+      } finally {
+        setLayoutLoading(false);
+      }
+    };
+    loadLayout();
+  }, [layoutId]);
+
+  // Handle zoom
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setZoom((prev) => Math.min(Math.max(prev * delta, 0.1), 5));
+  }, []);
+
+  // Handle pan start
+  const handlePanStart = useCallback((e: React.MouseEvent) => {
+    if (e.button === 1 || (e.button === 0 && e.altKey)) {
+      // Middle mouse or Alt+Left click
+      setIsPanning(true);
+      setPanStart({ x: e.clientX, y: e.clientY });
+      e.preventDefault();
+    }
+  }, []);
+
+  // Handle pan move
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!isPanning) return;
+      const dx = e.clientX - panStart.x;
+      const dy = e.clientY - panStart.y;
+      setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+      setPanStart({ x: e.clientX, y: e.clientY });
+    },
+    [isPanning, panStart]
+  );
+
+  // Handle pan end
+  const handleMouseUp = useCallback(() => {
+    if (isPanning) {
+      setIsPanning(false);
+    }
+  }, [isPanning]);
+
+  const handleStationClick = async (stationId: string, event: React.MouseEvent<SVGGElement>, component?: LayoutComponent) => {
     console.log(`Station clicked: ${stationId}`);
 
     // API'den istasyon bilgilerini getir
@@ -42,39 +127,8 @@ const FactoryLayout: React.FC<FactoryLayoutProps> = ({
       return;
     }
 
-    // Find station position in SVG
-    const stationPositions = [
-      { id: 'ST01', x: 80, y: 200 },
-      { id: 'ST02', x: 330, y: 200 },
-      { id: 'ST03', x: 580, y: 200 },
-      { id: 'ST04', x: 830, y: 200 },
-      { id: 'ST05', x: 1080, y: 200 },
-      { id: 'ST06', x: 1330, y: 200 },
-    ];
-
-    const stationPos = stationPositions.find(s => s.id === stationId);
-    if (stationPos && svgRef.current) {
-      const rect = svgRef.current.getBoundingClientRect();
-      const svgRect = svgRef.current.viewBox.baseVal;
-
-      // Calculate scale factors
-      const scaleX = rect.width / svgRect.width;
-      const scaleY = rect.height / svgRect.height;
-
-      // Station center in SVG coordinates
-      const stationCenterX = stationPos.x + 70; // Station width / 2
-      const stationCenterY = stationPos.y + 50; // Station height / 2
-
-      // Convert to screen coordinates
-      const screenX = rect.left + stationCenterX * scaleX;
-      const screenY = rect.top + stationCenterY * scaleY;
-
-      setPopoverPosition({ x: screenX, y: screenY });
-    } else {
-      // Fallback to click position
-      setPopoverPosition({ x: event.clientX, y: event.clientY });
-    }
-
+    // Calculate popover position from click
+    setPopoverPosition({ x: event.clientX, y: event.clientY });
     setPopoverOpen(true);
     onStationClick?.(stationId);
   };
@@ -86,647 +140,241 @@ const FactoryLayout: React.FC<FactoryLayoutProps> = ({
   };
 
   // Loading durumu
-  if (loading && useApi) {
+  if ((stationsLoading || layoutLoading) && useApi) {
     return (
       <div className="factory-container">
         <div className="text-white text-center">
-          <p>İstasyonlar yükleniyor...</p>
+          <p>Layout yükleniyor...</p>
         </div>
       </div>
     );
   }
 
   // Hata durumu
-  if (error && useApi) {
+  if ((stationsError || layoutError) && useApi) {
     return (
       <div className="factory-container">
         <div className="text-red-500 text-center">
-          <p>Hata: {error.message}</p>
-          <p className="text-sm mt-2">Backend API'ye bağlanılamıyor. Mock data kullanılıyor.</p>
+          <p>Hata: {stationsError?.message || layoutError}</p>
+          <p className="text-sm mt-2">Backend API'ye bağlanılamıyor.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="factory-container">
-      <StationInfoPopover
-        station={selectedStation}
-        open={popoverOpen}
-        onOpenChange={setPopoverOpen}
-        position={popoverPosition}
-      />
-      <svg
-        ref={svgRef}
-        width="100%"
-        height="100%"
-        viewBox="0 0 1600 600"
-        preserveAspectRatio="xMidYMid meet"
-        className="max-w-full max-h-full"
-        xmlns="http://www.w3.org/2000/svg"
+    <div className="factory-layout" ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+      {/* Toolbar */}
+      <div className="factory-layout__toolbar" style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '8px 16px',
+        backgroundColor: '#2a2e38',
+        borderBottom: '1px solid #3d4454',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: '#e5e7eb' }}>{layout?.name || 'Production Line'}</h2>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            onClick={() => setZoom((z) => Math.min(z * 1.2, 5))}
+            style={{
+              padding: '6px 10px',
+              fontSize: '13px',
+              color: '#e5e7eb',
+              backgroundColor: '#3f4856',
+              border: '1px solid #5a6978',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+          >
+            🔍+
+          </button>
+          <span style={{ minWidth: '50px', textAlign: 'center', fontFamily: 'monospace', fontSize: '13px', color: '#9ca3af' }}>
+            {Math.round(zoom * 100)}%
+          </span>
+          <button
+            onClick={() => setZoom((z) => Math.max(z * 0.8, 0.1))}
+            style={{
+              padding: '6px 10px',
+              fontSize: '13px',
+              color: '#e5e7eb',
+              backgroundColor: '#3f4856',
+              border: '1px solid #5a6978',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+          >
+            🔍-
+          </button>
+          <button
+            onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
+            style={{
+              padding: '6px 10px',
+              fontSize: '13px',
+              color: '#e5e7eb',
+              backgroundColor: '#3f4856',
+              border: '1px solid #5a6978',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+          >
+            ⟲ Reset
+          </button>
+        </div>
+      </div>
+
+      {/* Canvas */}
+      <div
+        className="factory-layout__canvas"
+        style={{ flex: 1, overflow: 'hidden', position: 'relative', backgroundColor: layout?.backgroundColor || '#1a1d24' }}
+        onWheel={handleWheel}
+        onMouseDown={handlePanStart}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
       >
-        {/* Definitions */}
-        <defs>
-          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-            <path
-              d="M 40 0 L 0 0 0 40"
-              fill="none"
-              stroke="#363a45"
-              strokeWidth="0.5"
-              opacity="0.3"
-            />
-          </pattern>
-          <marker
-            id="arrowhead"
-            markerWidth="10"
-            markerHeight="10"
-            refX="9"
-            refY="3"
-            orient="auto"
-          >
-            <polygon points="0 0, 10 3, 0 6" fill="#60a5fa" />
-          </marker>
-        </defs>
-
-        {/* Factory Floor */}
-        <g id="Factory_Floor">
-          <rect
-            id="Floor_Boundary"
-            x="40"
-            y="40"
-            width="1520"
-            height="520"
-            fill="#2a2e38"
-            stroke="#3d4454"
-            strokeWidth="2"
-          />
-          <rect
-            id="Floor_Grid"
-            x="40"
-            y="40"
-            width="1520"
-            height="520"
-            fill="url(#grid)"
-          />
-        </g>
-
-        {/* Header */}
-        <g id="Header">
-          <text
-            id="Title_Text"
-            x="60"
-            y="70"
-            fontSize="18"
-            fontWeight="600"
-            fill="#e5e7eb"
-            fontFamily="monospace"
-          >
-            PRODUCTION LINE - AUTOMOTIVE ASSEMBLY
-          </text>
-        </g>
-
-        {/* Walkway North */}
-        <g id="Walkway_North">
-          <line
-            id="Walkway_North_Line1"
-            x1="40"
-            y1="120"
-            x2="1510"
-            y2="120"
-            stroke="#fbbf24"
-            strokeWidth="2"
-            strokeDasharray="10,5"
-            opacity="0.5"
-          />
-          <line
-            id="Walkway_North_Line2"
-            x1="40"
-            y1="100"
-            x2="1510"
-            y2="100"
-            stroke="#fbbf24"
-            strokeWidth="2"
-            strokeDasharray="10,5"
-            opacity="0.5"
-          />
-          <text
-            id="Walkway_North_Label"
-            x="45"
-            y="115"
-            fontSize="9"
-            fill="#fbbf24"
-            fontFamily="monospace"
-            opacity="0.6"
-          >
-            WALKWAY
-          </text>
-        </g>
-
-        {/* Walkway South */}
-        <g id="Walkway_South">
-          <line
-            id="Walkway_South_Line1"
-            x1="40"
-            y1="380"
-            x2="1510"
-            y2="380"
-            stroke="#fbbf24"
-            strokeWidth="2"
-            strokeDasharray="10,5"
-            opacity="0.5"
-          />
-          <line
-            id="Walkway_South_Line2"
-            x1="40"
-            y1="400"
-            x2="1510"
-            y2="400"
-            stroke="#fbbf24"
-            strokeWidth="2"
-            strokeDasharray="10,5"
-            opacity="0.5"
-          />
-          <text
-            id="Walkway_South_Label"
-            x="45"
-            y="395"
-            fontSize="9"
-            fill="#fbbf24"
-            fontFamily="monospace"
-            opacity="0.6"
-          >
-            WALKWAY
-          </text>
-        </g>
-
-        {/* Safety Zone */}
-        <g id="Safety_Zone">
-          <line
-            id="Safety_Zone_Line"
-            x1="50"
-            y1="150"
-            x2="1500"
-            y2="150"
-            stroke="#ef4444"
-            strokeWidth="1.5"
-            strokeDasharray="5,5"
-            opacity="0.3"
-          />
-          <text
-            id="Safety_Zone_Label"
-            x="50"
-            y="145"
-            fontSize="9"
-            fill="#ef4444"
-            fontFamily="monospace"
-            opacity="0.5"
-          >
-            SAFETY ZONE
-          </text>
-        </g>
-
-        {/* Operator Zones */}
-        {['ST01', 'ST02', 'ST03', 'ST04', 'ST05', 'ST06'].map((stationId, index) => {
-          const x = 90 + index * 250;
-          return (
-            <g key={`op-zone-${stationId}`} id={`Operator_Zone_${stationId}`}>
-              <rect
-                id={`Operator_Zone_${stationId}_Area`}
-                x={x}
-                y="300"
-                width="120"
-                height="60"
+        <StationInfoPopover
+          station={selectedStation}
+          open={popoverOpen}
+          onOpenChange={setPopoverOpen}
+          position={popoverPosition}
+        />
+        <svg
+          ref={svgRef}
+          width="100%"
+          height="100%"
+          preserveAspectRatio="xMidYMid slice"
+          xmlns="http://www.w3.org/2000/svg"
+          style={{ display: 'block', cursor: isPanning ? 'grabbing' : 'default' }}
+        >
+          {/* Definitions */}
+          <defs>
+            <pattern id="view-grid" width={layout?.gridSize || 40} height={layout?.gridSize || 40} patternUnits="userSpaceOnUse">
+              <path
+                d={`M ${layout?.gridSize || 40} 0 L 0 0 0 ${layout?.gridSize || 40}`}
                 fill="none"
-                stroke="#60a5fa"
-                strokeWidth="1"
-                strokeDasharray="3,3"
-                opacity="0.3"
-              />
-              <circle
-                id={`Operator_Zone_${stationId}_Marker_Inner`}
-                cx={x + 60}
-                cy="330"
-                r="3"
-                fill="none"
-                stroke="#60a5fa"
-                strokeWidth="1"
-                opacity="0.4"
-              />
-              <circle
-                id={`Operator_Zone_${stationId}_Marker_Outer`}
-                cx={x + 60}
-                cy="330"
-                r="8"
-                fill="none"
-                stroke="#60a5fa"
+                stroke="#363a45"
                 strokeWidth="0.5"
                 opacity="0.3"
               />
-              <text
-                id={`Operator_Zone_${stationId}_Label`}
-                x={x + 60}
-                y="355"
-                fontSize="7"
-                fill="#60a5fa"
-                textAnchor="middle"
-                fontFamily="monospace"
-                opacity="0.4"
-              >
-                OP-{index + 1}
-              </text>
-            </g>
-          );
-        })}
-
-        {/* Conveyors - Dynamic based on station status */}
-        {[
-          { id: '01', x: 220, y: 246, width: 110, fromStation: 'ST01', toStation: 'ST02' },
-          { id: '02', x: 470, y: 246, width: 110, fromStation: 'ST02', toStation: 'ST03' },
-          { id: '03', x: 720, y: 246, width: 110, fromStation: 'ST03', toStation: 'ST04' },
-          { id: '04', x: 970, y: 246, width: 110, fromStation: 'ST04', toStation: 'ST05' },
-          { id: '05', x: 1220, y: 246, width: 110, fromStation: 'ST05', toStation: 'ST06' },
-        ].map((conveyor) => {
-          // Get source and destination station statuses
-          const fromStationData = stations.find(s => s.id === conveyor.fromStation);
-          const toStationData = stations.find(s => s.id === conveyor.toStation);
-
-          const isFromRunning = fromStationData?.status === 'RUNNING';
-          const isToRunning = toStationData?.status === 'RUNNING';
-
-          // Boxes move only when from station is running
-          // Animation pauses when to station is not running (boxes wait)
-          const showBoxes = isFromRunning && (fromStationData?.productionCount || 0) > 0;
-          const animationPaused = !isToRunning;
-
-          return (
-            <g key={`conveyor-${conveyor.id}`} id={`Conveyor_${conveyor.id}`} className={`conveyor ${isFromRunning ? 'conveyor-active' : ''}`}>
-              <polygon
-                id={`Conveyor_${conveyor.id}_Side`}
-                points={`${conveyor.x + conveyor.width},${conveyor.y} ${conveyor.x + conveyor.width + 4},${conveyor.y - 4} ${conveyor.x + conveyor.width + 4},${conveyor.y + 8 - 4} ${conveyor.x + conveyor.width},${conveyor.y + 8}`}
-                fill="#4a5568"
-                stroke="#6b7280"
-                strokeWidth="0.5"
-              />
-              <polygon
-                id={`Conveyor_${conveyor.id}_Top`}
-                points={`${conveyor.x},${conveyor.y} ${conveyor.x + 4},${conveyor.y - 4} ${conveyor.x + conveyor.width + 4},${conveyor.y - 4} ${conveyor.x + conveyor.width},${conveyor.y}`}
-                fill="#5a6978"
-                stroke="#6b7280"
-                strokeWidth="0.5"
-              />
-              <rect
-                id={`Conveyor_${conveyor.id}_Body`}
-                x={conveyor.x}
-                y={conveyor.y}
-                width={conveyor.width}
-                height="8"
-                fill="#4a5568"
-                stroke="#6b7280"
-                strokeWidth="1"
-              />
-              {Array.from({ length: 8 }, (_, i) => (
-                <line
-                  key={`roller-${i}`}
-                  id={`Conveyor_${conveyor.id}_Roller_${i + 1}`}
-                  className="conveyor-roller"
-                  x1={conveyor.x + (i + 1) * (conveyor.width / 9)}
-                  y1={conveyor.y}
-                  x2={conveyor.x + (i + 1) * (conveyor.width / 9)}
-                  y2={conveyor.y + 8}
-                  stroke="#2d3748"
-                  strokeWidth="1"
-                />
-              ))}
-
-              {/* Animated Product Boxes - Only show when from station has production */}
-              {showBoxes && (
-                <>
-                  <g
-                    className="conveyor-box"
-                    style={{ animationPlayState: animationPaused ? 'paused' : 'running' }}
-                  >
-                    <rect
-                      x={conveyor.x + 5}
-                      y={conveyor.y - 12}
-                      width="14"
-                      height="10"
-                      rx="2"
-                      fill="#f59e0b"
-                      stroke="#d97706"
-                      strokeWidth="1"
-                    />
-                    <rect
-                      x={conveyor.x + 7}
-                      y={conveyor.y - 10}
-                      width="10"
-                      height="2"
-                      fill="#fbbf24"
-                      opacity="0.6"
-                    />
-                  </g>
-
-                  <g
-                    className="conveyor-box-delayed-2"
-                    style={{ animationPlayState: animationPaused ? 'paused' : 'running' }}
-                  >
-                    <rect
-                      x={conveyor.x + 5}
-                      y={conveyor.y - 12}
-                      width="14"
-                      height="10"
-                      rx="2"
-                      fill="#f59e0b"
-                      stroke="#d97706"
-                      strokeWidth="1"
-                    />
-                    <rect
-                      x={conveyor.x + 7}
-                      y={conveyor.y - 10}
-                      width="10"
-                      height="2"
-                      fill="#fbbf24"
-                      opacity="0.6"
-                    />
-                  </g>
-                </>
-              )}
-
-              {/* Waiting box indicator when destination is not running */}
-              {showBoxes && animationPaused && (
-                <g className="waiting-box">
-                  <rect
-                    x={conveyor.x + conveyor.width - 20}
-                    y={conveyor.y - 12}
-                    width="14"
-                    height="10"
-                    rx="2"
-                    fill="#ef4444"
-                    stroke="#dc2626"
-                    strokeWidth="1"
-                  >
-                    <animate
-                      attributeName="opacity"
-                      values="1;0.5;1"
-                      dur="1s"
-                      repeatCount="indefinite"
-                    />
-                  </rect>
-                  <rect
-                    x={conveyor.x + conveyor.width - 18}
-                    y={conveyor.y - 10}
-                    width="10"
-                    height="2"
-                    fill="#f87171"
-                    opacity="0.6"
-                  />
-                </g>
-              )}
-            </g>
-          );
-        })}
-
-
-        {/* Production Stations */}
-        {[
-          { id: 'ST01', type: 'WELDING', x: 80, y: 200 },
-          { id: 'ST02', type: 'ASSEMBLY', x: 330, y: 200 },
-          { id: 'ST03', type: 'PAINTING', x: 580, y: 200 },
-          { id: 'ST04', type: 'INSPECTION', x: 830, y: 200 },
-          { id: 'ST05', type: 'TESTING', x: 1080, y: 200 },
-          { id: 'ST06', type: 'PACKAGING', x: 1330, y: 200 },
-        ].map((station) => {
-          const statusClass = getStationStatusClass(station.id);
-          return (
-            <g
-              key={`station-${station.id}`}
-              id={`Station_${station.id}`}
-              className={`station ${statusClass}`}
-              onClick={(e) => handleStationClick(station.id, e)}
+            </pattern>
+            <marker
+              id="connection-arrow"
+              markerWidth="12"
+              markerHeight="12"
+              refX="10"
+              refY="4"
+              orient="auto"
+              markerUnits="userSpaceOnUse"
             >
-              {/* Shadow */}
-              <ellipse
-                id={`Station_${station.id}_Shadow`}
-                cx={station.x + 70 + 6}
-                cy={station.y + 100 + 5}
-                rx="70"
-                ry="10"
-                fill="#000000"
-                opacity="0.2"
+              <polygon points="0 0, 12 4, 0 8" fill="#60a5fa" />
+            </marker>
+          </defs>
+
+          {/* Infinite Canvas Group */}
+          <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+            {/* Infinite Background */}
+            <rect
+              x="-50000"
+              y="-50000"
+              width="100000"
+              height="100000"
+              fill={layout?.backgroundColor || '#1a1d24'}
+            />
+            <rect
+              x="-50000"
+              y="-50000"
+              width="100000"
+              height="100000"
+              fill="url(#view-grid)"
+            />
+
+            {/* Connections */}
+            {layout?.connections?.map((connection) => (
+              <ConnectionRenderer
+                key={connection.id}
+                connection={connection}
+                components={layout.components}
+                onClick={() => { }} // Read-only mode, no action
+                readOnly={true}
               />
+            ))}
 
-              {/* Station Side */}
-              <polygon
-                id={`Station_${station.id}_Side`}
-                points={`${station.x + 140},${station.y + 6} ${station.x + 140 + 12},${station.y - 12 + 6} ${station.x + 140 + 12},${station.y + 100 - 12 - 6} ${station.x + 140},${station.y + 100 - 6}`}
-                fill="#2d3748"
-                stroke="#5a6978"
-                strokeWidth="1"
-              />
+            {/* Dynamic Layout Components from API */}
+            {layout?.components
+              ?.sort((a, b) => a.zIndex - b.zIndex)
+              .map((component) => {
+                const template = component.template;
+                if (!template) return null;
 
-              {/* Station Top */}
-              <polygon
-                id={`Station_${station.id}_Top`}
-                points={`${station.x + 6},${station.y} ${station.x + 12 + 6},${station.y - 12} ${station.x + 140 + 12 - 6},${station.y - 12} ${station.x + 140 - 6},${station.y}`}
-                fill="#4a5568"
-                stroke="#5a6978"
-                strokeWidth="1"
-              />
+                const { x, y, rotation, scaleX, scaleY } = component;
+                const { width, height, svgContent } = template;
 
-              {/* Station Body */}
-              <rect
-                id={`Station_${station.id}_Body`}
-                className="station-body"
-                x={station.x}
-                y={station.y}
-                width="140"
-                height="100"
-                rx="6"
-                ry="6"
-                fill="#3f4856"
-                stroke="#5a6978"
-                strokeWidth="2"
-              />
+                // Extract inner SVG content and viewBox
+                const innerSvgContent = stripSvgTags(svgContent || '');
+                const componentViewBox = extractViewBox(svgContent || '') || `0 0 ${width} ${height}`;
 
-              {/* Inner Frame */}
-              <rect
-                id={`Station_${station.id}_Frame`}
-                x={station.x + 8}
-                y={station.y + 8}
-                width="124"
-                height="84"
-                rx="3"
-                ry="3"
-                fill="none"
-                stroke="#4a5568"
-                strokeWidth="1"
-                strokeDasharray="4,2"
-              />
+                // Get station status class if this is a station component
+                const instanceId = component.instanceName.toUpperCase();
+                const statusClass = getStationStatusClass(instanceId);
 
-              {/* Station ID Label */}
-              <text
-                id={`Station_${station.id}_ID_Label`}
-                className="station-label"
-                x={station.x + 70}
-                y={station.y + 30}
-                fontSize="16"
-                fontWeight="700"
-                fill="#e5e7eb"
-                textAnchor="middle"
-                fontFamily="monospace"
-                letterSpacing="2"
-              >
-                {station.id}
-              </text>
+                // Calculate scaled dimensions
+                const scaledWidth = width * scaleX;
+                const scaledHeight = height * scaleY;
 
-              {/* Station Type Label */}
-              <text
-                id={`Station_${station.id}_Type_Label`}
-                className="station-label"
-                x={station.x + 70}
-                y={station.y + 50}
-                fontSize="10"
-                fill="#9ca3af"
-                textAnchor="middle"
-                fontFamily="monospace"
-              >
-                {station.type}
-              </text>
+                // Transform string - position and rotate only, no scale (scale is handled by SVG dimensions)
+                const transform = `translate(${x}, ${y}) rotate(${rotation}, ${scaledWidth / 2}, ${scaledHeight / 2})`;
 
-              {/* Status Lamp */}
-              <g id={`Station_${station.id}_Status_Lamp`} className="status-lamp">
-                <circle
-                  id={`Station_${station.id}_Status_Lamp_Outer`}
-                  className="status-lamp-outer"
-                  cx={station.x + 70}
-                  cy={station.y + 80}
-                  r="8"
-                  fill="#9ca3af"
-                  stroke="#5a6978"
-                  strokeWidth="1"
-                />
-                <circle
-                  id={`Station_${station.id}_Status_Lamp_Middle`}
-                  className="status-lamp-middle"
-                  cx={station.x + 70}
-                  cy={station.y + 80}
-                  r="6"
-                  fill="#6b7280"
-                />
-                <circle
-                  id={`Station_${station.id}_Status_Lamp_Core`}
-                  className="status-lamp-core"
-                  cx={station.x + 70}
-                  cy={station.y + 80}
-                  r="4"
-                  fill="#4b5563"
-                />
-                <circle
-                  id={`Station_${station.id}_Status_Lamp_Highlight`}
-                  cx={station.x + 70 - 1.5}
-                  cy={station.y + 80 - 1.5}
-                  r="1.5"
-                  fill="#ffffff"
-                  opacity="0.4"
-                />
-              </g>
+                return (
+                  <g
+                    key={component.id}
+                    id={`Component_${component.instanceName}`}
+                    className={`layout-component station ${statusClass}`}
+                    transform={transform}
+                    onClick={(e) => handleStationClick(instanceId, e, component)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    {/* Render SVG content with proper viewBox scaling */}
+                    <svg
+                      x="0"
+                      y="0"
+                      width={scaledWidth}
+                      height={scaledHeight}
+                      viewBox={componentViewBox}
+                      preserveAspectRatio="none"
+                      className={template.category === 'floors' ? 'floor-svg-content' : ''}
+                    >
+                      {/* Hide text elements inside floor components */}
+                      {template.category === 'floors' && (
+                        <style>{`.floor-svg-content text, .floor-svg-content rect[rx] { display: none; }`}</style>
+                      )}
+                      <g dangerouslySetInnerHTML={{ __html: innerSvgContent }} />
+                    </svg>
 
-              {/* Equipment Left */}
-              <g id={`Station_${station.id}_Equipment_Left`}>
-                <polygon
-                  points={`${station.x + 27},${station.y + 60} ${station.x + 30},${station.y + 57} ${station.x + 30},${station.y + 65} ${station.x + 27},${station.y + 68}`}
-                  fill="#2d3748"
-                />
-                <polygon
-                  points={`${station.x + 15},${station.y + 60} ${station.x + 18},${station.y + 57} ${station.x + 30},${station.y + 57} ${station.x + 27},${station.y + 60}`}
-                  fill="#5a6978"
-                />
-                <rect
-                  x={station.x + 15}
-                  y={station.y + 60}
-                  width="12"
-                  height="8"
-                  fill="#4a5568"
-                />
-              </g>
-
-              {/* Equipment Right */}
-              <g id={`Station_${station.id}_Equipment_Right`}>
-                <polygon
-                  points={`${station.x + 140 - 15},${station.y + 60} ${station.x + 140 - 12},${station.y + 57} ${station.x + 140 - 12},${station.y + 65} ${station.x + 140 - 15},${station.y + 68}`}
-                  fill="#2d3748"
-                />
-                <polygon
-                  points={`${station.x + 140 - 27},${station.y + 60} ${station.x + 140 - 24},${station.y + 57} ${station.x + 140 - 12},${station.y + 57} ${station.x + 140 - 15},${station.y + 60}`}
-                  fill="#5a6978"
-                />
-                <rect
-                  x={station.x + 140 - 27}
-                  y={station.y + 60}
-                  width="12"
-                  height="8"
-                  fill="#4a5568"
-                />
-              </g>
-            </g>
-          );
-        })}
-
-        {/* Legend */}
-        <g id="Legend" transform="translate(1400, 460)">
-          <rect
-            id="Legend_Background"
-            x="0"
-            y="0"
-            width="180"
-            height="120"
-            fill="#2a2e38"
-            stroke="#3d4454"
-            strokeWidth="1"
-            rx="4"
-          />
-          <text
-            id="Legend_Title"
-            x="10"
-            y="20"
-            fontSize="11"
-            fontWeight="600"
-            fill="#e5e7eb"
-            fontFamily="monospace"
-          >
-            LEGEND
-          </text>
-          <g id="Legend_Station_Icon">
-            <rect x="10" y="30" width="20" height="15" fill="#3f4856" stroke="#5a6978" strokeWidth="1" rx="2" />
-            <polygon points="30,30 32,28 32,43 30,45" fill="#2d3748" stroke="#5a6978" strokeWidth="0.5" />
-            <polygon points="10,30 12,28 32,28 30,30" fill="#4a5568" stroke="#5a6978" strokeWidth="0.5" />
+                    {/* Instance Name Label */}
+                    <text
+                      x={scaledWidth / 2}
+                      y={-8}
+                      textAnchor="middle"
+                      fontSize="14"
+                      fontWeight="bold"
+                      fill="#e5e7eb"
+                      fontFamily="monospace"
+                      style={{ pointerEvents: 'none' }}
+                    >
+                      {component.instanceName}
+                    </text>
+                  </g>
+                );
+              })}
           </g>
-          <text id="Legend_Station_Text" x="35" y="42" fontSize="10" fill="#9ca3af" fontFamily="monospace">Workstation</text>
-          <rect id="Legend_Conveyor_Icon" x="10" y="50" width="20" height="4" fill="#4a5568" stroke="#6b7280" strokeWidth="1" />
-          <text id="Legend_Conveyor_Text" x="35" y="56" fontSize="10" fill="#9ca3af" fontFamily="monospace">Conveyor Belt</text>
-          <line id="Legend_Flow_Icon" x1="10" y1="70" x2="28" y2="70" stroke="#60a5fa" strokeWidth="2" markerEnd="url(#arrowhead)" />
-          <text id="Legend_Flow_Text" x="35" y="73" fontSize="10" fill="#9ca3af" fontFamily="monospace">Material Flow</text>
-          <rect id="Legend_Operator_Icon" x="10" y="78" width="20" height="12" fill="none" stroke="#60a5fa" strokeWidth="1" strokeDasharray="3,3" opacity="0.5" />
-          <text id="Legend_Operator_Text" x="35" y="87" fontSize="10" fill="#9ca3af" fontFamily="monospace">Operator Zone</text>
-          <line id="Legend_Walkway_Icon" x1="10" y1="100" x2="28" y2="100" stroke="#fbbf24" strokeWidth="2" strokeDasharray="10,5" opacity="0.5" />
-          <text id="Legend_Walkway_Text" x="35" y="103" fontSize="10" fill="#9ca3af" fontFamily="monospace">Safety Walkway</text>
-        </g>
-
-        {/* Footer */}
-        <g id="Footer">
-          <text
-            id="Footer_Info"
-            x="60"
-            y="545"
-            fontSize="10"
-            fill="#6b7280"
-            fontFamily="monospace"
-          >
-            Layout: PROD_LINE_A1 | Scale: 1:50 | Date: 2026-01-18 | View: Isometric
-          </text>
-        </g>
-      </svg>
+        </svg>
+      </div>
     </div>
   );
 };
 
 export default FactoryLayout;
+
