@@ -1,6 +1,6 @@
 # Digital Twin Factory Monitoring System
 
-Dijital ikiz fabrika izleme sistemi - Gerçek zamanlı üretim hattı simülasyonu ve izleme.
+Dijital ikiz fabrika izleme sistemi - Gerçek zamanlı üretim hattı simülasyonu, 2D/3D görselleştirme ve layout düzenleme aracı.
 
 ## 🏗️ Proje Yapısı
 
@@ -9,11 +9,12 @@ Dijital_Twin/
 ├── Layaut/              # Frontend (React + TypeScript + Vite)
 │   └── src/
 │       ├── app/         # Uygulama ana bileşenleri
-│       ├── components/  # UI bileşenleri
+│       ├── components/  # UI ve Görselleştirme (2D/3D) bileşenleri
 │       ├── data/        # Statik veri
 │       ├── hooks/       # React hooks
 │       ├── services/    # API servisleri
-│       └── styles/      # CSS stilleri
+│       ├── styles/      # CSS stilleri
+│       └── utils/       # Yardımcı fonksiyonlar (DXF parsers vb.)
 ├── backend/             # Backend API (Node.js + Express + Prisma)
 │   ├── prisma/          # Veritabanı şeması ve migrasyonlar
 │   └── src/
@@ -28,26 +29,35 @@ Dijital_Twin/
 ## ✨ Özellikler
 
 ### Frontend
-- 🏭 İnteraktif üretim hattı görselleştirmesi
-- 📊 Gerçek zamanlı istasyon durumu takibi
-- 🎨 Modern ve responsive tasarım
-- 📱 Tam sayfa layout desteği
-- 🔔 İstasyon bilgileri popover'ı
-- 🔄 Canlı veri güncellemesi (5 saniyede bir)
+- 🏭 **Çift Modlu Görselleştirme:** Hem 2D teknik çizim hem de 3D görselleştirme desteği.
+- ✏️ **Gelişmiş Layout Editörü:**
+    - **Sürükle & Bırak** ile simülasyon bileşenleri ekleme.
+    - **Otomatik Kayıt (Auto-Save):** Yapılan her değişiklik anında sunucuya kaydedilir.
+    - **Ayrılmış Paneller:** Solda bileşen paleti, sağda özellikler paneli.
+    - **Dinamik Özellikler:** Konum, boyut, rotasyon, renk ve Z-index kontrolü.
+- 📥 **Dosya İçe Aktarma:**
+    - **DXF/DWG Import:** CAD çizimlerini layout'a dönüştürme.
+    - **SVG Import:** Vektörel grafikleri bileşen olarak ekleme.
+- 🧊 **3D Görüntüleyici:**
+    - Oracle Controls (Döndürme, Yakınlaştırma, Kaydırma).
+    - 2D layout ile tam senkronizasyon.
+    - Düzenleme modunda anlık 3D önizleme.
+- 📊 Gerçek zamanlı istasyon durumu takibi (5 saniyede bir güncelleme).
+- 📱 Tam sayfa responsive tasarım.
 
 ### Backend
-- 🗄️ SQLite veritabanı (kolay kurulum)
-- 🔌 RESTful API endpoints
-- 📈 İstasyon geçmişi takibi
-- ✅ Request validation
-- 🔒 CORS desteği
+- 🗄️ SQLite veritabanı (hafif ve kurulumsuz).
+- 🔌 RESTful API endpoints.
+- 📈 İstasyon geçmişi ve performans takibi.
+- ✅ Request validation ve hata yönetimi.
+- 🔒 CORS desteği.
 
 ### 🏭 Simülatör
-- 🔄 Gerçekçi üretim hattı simülasyonu
-- 📊 OEE (Overall Equipment Effectiveness) hesaplama
-- ⚠️ Rastgele hata ve bakım senaryoları
-- 🔗 6 istasyonlu sıralı üretim akışı
-- ⏱️ Cycle time ve buffer yönetimi
+- 🔄 Gerçekçi üretim hattı simülasyonu.
+- 📊 OEE (Overall Equipment Effectiveness) hesaplama.
+- ⚠️ Rastgele hata, bakım ve duruş senaryoları.
+- 🔗 6 istasyonlu sıralı üretim akışı.
+- ⏱️ Cycle time ve buffer yönetimi.
 
 ## 🚀 Hızlı Başlangıç
 
@@ -57,14 +67,10 @@ Dijital_Twin/
 cd backend
 npm install
 
-# Prisma client oluştur
+# Prisma veritabanı kurulumu
 npm run db:generate
-
-# Veritabanı migrasyonu
 npm run db:migrate
-
-# Seed data (başlangıç verileri)
-npm run db:seed
+npm run db:seed  # Başlangıç verilerini yükler
 
 # Sunucuyu başlat
 npm run dev
@@ -79,11 +85,10 @@ cd backend
 npm run simulate
 ```
 
-Simülatör üretim hattını gerçekçi bir şekilde çalıştırır:
-- 6 istasyon sırayla üretim yapar
-- Cycle time'lara göre parça işlenir
-- Rastgele hata/bakım olayları oluşur
-- OEE değerleri hesaplanır
+Simülatör üretim hattını canlandırır:
+- İstasyonlar arası parça akışı sağlanır.
+- OEE değerleri hesaplanır.
+- Rastgele arızalar oluşur (Frontend'de kırmızı/sarı uyarılar olarak görülür).
 
 ### 3. Frontend Kurulumu
 
@@ -91,63 +96,36 @@ Simülatör üretim hattını gerçekçi bir şekilde çalıştırır:
 cd Layaut
 npm install
 
-# .env dosyası oluşturun (opsiyonel)
-# VITE_API_URL=http://localhost:3001
-
+# Geliştirme sunucusunu başlat
 npm run dev
 ```
 
 Frontend `http://localhost:5173` adresinde çalışacak.
 
-## 📚 Dokümantasyon
+## 🖱️ Kontroller ve Kısayollar
 
-- **Backend SQLite Kurulum:** `backend/KURULUM_SQLITE.md`
-- **Backend API:** `backend/README.md`
-- **Git Komutları:** `GIT_KOMUTLARI.md`
-
-## 🔌 API Endpoints
-
-- `GET /api/stations` - Tüm istasyonları getir
-- `GET /api/stations/:id` - Belirli bir istasyonu getir
-- `PUT /api/stations/:id/status` - İstasyon durumunu güncelle
-- `PUT /api/stations/:id` - İstasyon bilgilerini güncelle
-- `GET /api/stations/:id/history` - İstasyon geçmişini getir
-- `GET /health` - Sunucu durumu
-
-## 🏭 Üretim Hattı
-
-Simülatör 6 istasyonlu bir üretim hattını modellemektedir:
-
-| İstasyon | Tip | Cycle Time |
-|----------|-----|------------|
-| ST01 | Welding (Kaynak) | 6 sn |
-| ST02 | Assembly (Montaj) | 5 sn |
-| ST03 | Painting (Boya) | 8 sn |
-| ST04 | Inspection (Kontrol) | 4 sn |
-| ST05 | Testing (Test) | 7 sn |
-| ST06 | Packaging (Paketleme) | 3 sn |
-
-## 🎨 Durumlar
-
-- 🟢 **RUNNING** - Çalışıyor
-- 🔴 **STOPPED** - Durduruldu
-- ❌ **ERROR** - Hata
-- 🔧 **MAINTENANCE** - Bakım
+| Aksiyon | 2D Editör | 3D Görünüm |
+|---------|-----------|------------|
+| **Seçim** | Sol Tık | - |
+| **Taşıma (Pan)** | Orta Tuş / Alt + Sol Tık | Sağ Tık (Sürükle) |
+| **Yakınlaştırma** | Mouse Tekerleği | Mouse Tekerleği |
+| **Döndürme (Rotate)** | - | Sol Tık (Sürükle) |
+| **Silme** | Seç + Delete | - |
+| **İptal** | ESC | - |
 
 ## 🛠️ Teknolojiler
 
 ### Frontend
-- React + TypeScript
-- Vite
-- Tailwind CSS
-- SVG (Inline)
+- **Core:** React 18, TypeScript, Vite
+- **Görselleştirme:** Three.js, React Three Fiber, React Three Drei
+- **Styling:** Tailwind CSS, Vanilla CSS
+- **Utilities:** dxf-parser (CAD desteği)
 
 ### Backend
-- Node.js + Express
-- TypeScript
-- Prisma ORM
-- SQLite (kolay kurulum, geliştirme için ideal)
-- Express Validator
+- **Runtime:** Node.js, Express
+- **Database:** SQLite, Prisma ORM
+- **Language:** TypeScript
+- **Validation:** Express Validator
 
 ## 📋 NPM Komutları
 
@@ -156,11 +134,8 @@ Simülatör 6 istasyonlu bir üretim hattını modellemektedir:
 |-------|----------|
 | `npm run dev` | Geliştirme sunucusu |
 | `npm run simulate` | Üretim simülatörü |
-| `npm run db:generate` | Prisma client oluştur |
-| `npm run db:migrate` | Veritabanı migrasyonu |
-| `npm run db:seed` | Başlangıç verileri |
-| `npm run db:studio` | Prisma Studio (DB yönetimi) |
-| `npm run db:reset` | Veritabanını sıfırla |
+| `npm run db:reset` | Veritabanını sıfırla ve yeniden seed et |
+| `npm run db:studio` | Prisma Studio (Veritabanı GUI) |
 
 ### Frontend
 | Komut | Açıklama |
@@ -168,11 +143,3 @@ Simülatör 6 istasyonlu bir üretim hattını modellemektedir:
 | `npm run dev` | Geliştirme sunucusu |
 | `npm run build` | Üretim derlemesi |
 | `npm run preview` | Build önizleme |
-
-## 📝 Geliştirme Notları
-
-- Frontend varsayılan olarak API'yi kullanır
-- API bağlantı hatası durumunda mock data'ya geri döner
-- Simülatör 2 saniyede bir istasyonları günceller
-- Veritabanı değişiklikleri için Prisma migrations kullanılır
-- SQLite veritabanı `backend/prisma/dev.db` dosyasında saklanır
